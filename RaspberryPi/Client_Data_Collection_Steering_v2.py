@@ -41,8 +41,8 @@ def get_smoothed_value():
 # === Camera Setup ===
 cams = [cv2.VideoCapture(i) for i in CAM_INDEXES]
 for cam in cams:
-    cam.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 160)
+    cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
 # === Connect to Laptop ===
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
