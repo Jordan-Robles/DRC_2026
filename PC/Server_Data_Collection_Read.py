@@ -64,22 +64,23 @@ while True:
         frames = payload.get("frames", [])
         mapped_value = payload.get("mapped_value", None)
 
-        # === Resize and display ===
-        resized = [cv2.resize(f, (320, 240)) if f is not None else np.zeros((240, 320, 3), np.uint8) for f in frames]
-        combined = np.hstack(resized)
-        cv2.imshow('Camera Stream', combined)
+        # === Display frames (PS3 Eye: 640x480) ===
+        # No resize needed - display at native resolution
+        combined = np.hstack([f if f is not None else np.zeros((480, 640, 3), np.uint8) for f in frames])
+        cv2.imshow('Camera Stream (640x480)', combined)
 
         # === Save images + log to CSV ===
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
-        for cam_id, frame in enumerate(resized):
-            img_filename = f"centre_{timestamp}.jpg"
-            img_path = os.path.join(OUTPUT_DIR, img_filename)
-            cv2.imwrite(img_path, frame)
+        for cam_id, frame in enumerate(frames):
+            if frame is not None:
+                img_filename = f"centre_{timestamp}.jpg"
+                img_path = os.path.join(OUTPUT_DIR, img_filename)
+                cv2.imwrite(img_path, frame)  # Save at native 640x480 resolution
 
-            # Save to CSV
-            angle = mapped_value if mapped_value is not None else 0
-            csv_writer.writerow([timestamp, cam_id, img_filename, angle])
-            print(f"[{frame_counter}] Saved {img_filename} with mapped_value {angle}")
+                # Save to CSV
+                angle = mapped_value if mapped_value is not None else 0
+                csv_writer.writerow([timestamp, cam_id, img_filename, angle])
+                print(f"[{frame_counter}] Saved {img_filename} with mapped_value {angle}")
 
         frame_counter += 1
 

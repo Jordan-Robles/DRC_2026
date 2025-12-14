@@ -2,7 +2,7 @@ import pigpio
 import time
 
 # === CONFIG ===
-RC_PIN = 17  # GPIO pin connected to RC receiver signal
+RC_PIN = 4  # GPIO pin connected to RC receiver signal
 
 # === Setup pigpio ===
 pi = pigpio.pi()

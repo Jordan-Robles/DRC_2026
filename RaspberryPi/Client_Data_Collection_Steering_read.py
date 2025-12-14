@@ -8,7 +8,7 @@ import pigpio
 SERVER_IP = '192.168.0.225'
 PORT = 9999
 cam_indexes = [0]
-RC_PIN = 17  # GPIO pin connected to RC receiver signal (adjust as needed)
+RC_PIN = 4  # GPIO pin connected to RC receiver signal (adjust as needed)
 
 # === PWM Reading Setup ===
 pi = pigpio.pi()
@@ -30,6 +30,13 @@ pulse_start = 0
 pi.set_mode(RC_PIN, pigpio.INPUT)
 pi.callback(RC_PIN, pigpio.EITHER_EDGE, pwm_callback)
 
+def map_pwm_to_range(pwm_value, min_pwm=1000, max_pwm=2000, min_out=-1.0, max_out=1.0):
+    """Map PWM value (typically 1000-2000) to desired range (-1 to 1)"""
+    # Clamp to expected range
+    pwm_value = max(min_pwm, min(max_pwm, pwm_value))
+    # Map to output range
+    return min_out + (pwm_value - min_pwm) * (max_out - min_out) / (max_pwm - min_pwm)
+
 # === Camera setup ===
 cams = [cv2.VideoCapture(i) for i in cam_indexes]
 for cam in cams:
@@ -49,15 +56,16 @@ try:
                 frame = None
             frames.append(frame)
 
-        # === Read current PWM pulse width ===
+        # === Read current PWM pulse width and map to -1 to 1 ===
         # RC receivers typically output 1000-2000 microseconds
-        # 1500 is center/neutral position
+        # 1500 is center/neutral position (0.0)
         current_pulse = pulse_width
+        mapped_value = map_pwm_to_range(current_pulse)
 
-        # === Package frames + pulse width ===
+        # === Package frames + mapped value ===
         payload = {
             "frames": frames,
-            "mapped_value": current_pulse  # Pulse width in microseconds
+            "mapped_value": mapped_value  # Mapped to -1.0 to 1.0
         }
 
         data = pickle.dumps(payload)
