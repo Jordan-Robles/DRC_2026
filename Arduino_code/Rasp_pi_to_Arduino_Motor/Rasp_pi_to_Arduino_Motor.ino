@@ -1,3 +1,5 @@
+// This code was for our janky RC transmitter speed contol
+
 const int pwmPin = 2;  // RC signal pin
 const int RPWM = 6;   // PWM pin for forward
 const int LPWM = 5;   // PWM pin for reverse
