@@ -1,4 +1,4 @@
-// --- Pin definitions ---
+// --- Pin definitions for the L298n ---
 const int M1_EN  = 9;
 const int M1_IN1 = 2;
 const int M1_IN2 = 4;
@@ -13,13 +13,13 @@ const int M3_IN2 = 13;
 
 // --- Config ---
 const int DRIVE_SPEED = 170;   // forward speed for M1 + M2 (0–255)
-const int TURN_SCALE  = 255;   // max turning power
+const int TURN_SCALE  = 255;   // max turning power 255
 
 // --- Serial ---
 String inputBuffer = "";
 float steeringAngle = 0;
 
-// --- Motor helper ---
+// --- Motor funtion ---
 void setMotor(int en, int in1, int in2, int speed) {
   speed = constrain(speed, -255, 255);
 
@@ -66,7 +66,7 @@ void loop() {
       steeringAngle = inputBuffer.toFloat();
       inputBuffer = "";
 
-      // clamp input
+      // clamp input, althought eh model already outputs a value between -1 and 1, we keep this here just in case
       steeringAngle = constrain(steeringAngle, -1.0, 1.0);
 
       Serial.print("Angle: ");
@@ -82,7 +82,10 @@ void loop() {
   setMotor(M2_EN, M2_IN1, M2_IN2, DRIVE_SPEED);
 
   // --- Steering (rear wheel) ---
-  int turnPower = (int)(steeringAngle * TURN_SCALE);
+int turnPower = (int)(steeringAngle * TURN_SCALE);
+  if (turnPower != 0 && abs(turnPower) < 150) {
+    turnPower = (turnPower > 0) ? 150 : -150;
+  }
 
   setMotor(M3_EN, M3_IN1, M3_IN2, turnPower);
 }

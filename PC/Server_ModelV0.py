@@ -7,22 +7,27 @@ from keras.models import load_model
 from keras.models import load_model
 from keras.losses import MeanSquaredError
 from keras.optimizers import Adam
-from Colour_filters import ColourFilter
 
 
 
 # === CONFIG ===
-PORT = 9999  
-MODEL_PATH = r'C:\Users\jorda\DRC_2026\DRC_2026\Trained_Models\model_DRC_2026Test5.h5'#r'C:\Users\jorda\DRC\DRC_Code1\Course\model.h5' #r'C:\Users\jorda\DRC\DRC_Code1\model_DRC_V2.h5' 
+PORT = 9999
+MODEL_PATH = r'C:\Users\jorda\DRC\DRC_Code1\model_DRC_V7.h5'#r'C:\Users\jorda\DRC\DRC_Code1\Course\model.h5' #r'C:\Users\jorda\DRC\DRC_Code1\model_DRC_V2.h5' 
 # === Load the model ===
 print("Loading model...")
 model = load_model(MODEL_PATH, compile=False)  # Do not auto-load 'mse'
 print("Model loaded.")
 
 # === Recompile model with the same loss & optimizer ===
-model.compile(loss=MeanSquaredError(), optimizer=Adam(learning_rate=1e-3)) #1e-4
+model.compile(loss=MeanSquaredError(), optimizer=Adam(learning_rate=1e-4))
 print("Model compiled successfully.")
 
+
+# === Image Preprocessing ===
+def preprocess_image(img):
+    img = cv2.resize(img, (200, 66))  # Resize to match model input
+    img = img / 255.0  # Normalize
+    return img
 
 # === Setup server socket ===
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -52,27 +57,24 @@ try:
         # Receive image frame
         while len(data) < msg_size:
             data += conn.recv(4096)
-
         frame_data = data[:msg_size]
         data = data[msg_size:]
 
         # Decode image
         frame = pickle.loads(frame_data)
-        frame = cv2.imdecode(frame, cv2.IMREAD_COLOR)
-        #image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
-        if frame is None:
+        image = cv2.imdecode(frame, cv2.IMREAD_COLOR)
+        if image is None:
             continue
 
         # Show live stream
-        cv2.imshow("Live Stream", frame)
+        cv2.imshow("Live Stream", image)
         key = cv2.waitKey(1) & 0xFF
         if key == 27:  # ESC key
             print("ESC pressed. Exiting...")
             break
-        
+
         # Predict steering angle
-        input_image = ColourFilter.img_preprocess(frame)
+        input_image = preprocess_image(image)
         input_image = np.expand_dims(input_image, axis=0)
         steering_angle = float(model.predict(input_image)[0][0])
         print(f"Predicted Steering: {steering_angle:.2f}")

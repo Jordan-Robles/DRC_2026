@@ -16,7 +16,7 @@ import random
 
 
 #===read the data with pandas===
-datadir = r'C:\Users\jorda\DRC\Testing_Data\Test45'
+datadir = r'C:\Users\jorda\DRC\Testing_Data\Test5'
 csv_path = os.path.join(datadir, 'labels.csv')
 
 data = pd.read_csv(csv_path)
@@ -105,7 +105,7 @@ def load_img_steering(datadir, df):
     
     return np.asarray(image_path), np.asarray(steering)
 
-image_paths, steerings = load_img_steering(r'C:\Users\jorda\DRC\Testing_Data\Test45', data) # two arrays, 1 for images and other for array conataining each images corresponding steering angle
+image_paths, steerings = load_img_steering(r'C:\Users\jorda\DRC\Testing_Data\Test5', data) # two arrays, 1 for images and other for array conataining each images corresponding steering angle
 
 X_train, X_valid, Y_train, Y_valid = train_test_split(image_paths, steerings, test_size = 0.2, random_state=6) #splits the data into training and validation 
 print('Training Samples: {}\nValid Samples: {}'. format(len(X_train), len(X_valid)))
@@ -166,7 +166,7 @@ def img_preprocess(img): #pre-process our data to be used inside our model
 
     # Yellow mask
     lower_yellow = np.array([15, 80, 80]) #lower bound for yellow in YUV
-    upper_yellow  = np.array([255, 255, 0]) #creates a mask for the yellow lines on the road
+    upper_yellow  = np.array([35, 255, 255]) #creates a mask for the yellow lines on the road
     yellow_mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
     # Blue mask
     lower_blue = np.array([90, 80, 80])
@@ -179,7 +179,7 @@ def img_preprocess(img): #pre-process our data to be used inside our model
     # Apply mask to original image (show only yellow and blue lines)
     img = cv2.bitwise_and(img, img, mask=mask)
 
-    img = yellow_mask + blue_mask
+    #img = yellow_mask + blue_mask
     img = cv2.GaussianBlur(img, (3,3), 0)# smoothens the iamge and reduces noise. It works by using convultion
     img = cv2.resize(img, (200, 66)) #reduces computational costs and is also used as the input size in teh nivida model
     img = img/255 #normalises the image
@@ -289,4 +289,4 @@ plt.xlabel('Epoch')
 
 plt.show()
 
-model.save('model_DRC_V2026.h5')
+model.save('model_DRC_2026Test5.h5')

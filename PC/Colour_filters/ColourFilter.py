@@ -43,5 +43,5 @@ if __name__=="__main__":
         cv2.imshow("Prosses image", processed_img)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
-    cv2.release()
+    cap.release()
     cv2.destroyAllWindows()
