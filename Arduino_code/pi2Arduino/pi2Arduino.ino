@@ -12,7 +12,7 @@ const int M3_IN1 = 12;
 const int M3_IN2 = 13;
 
 // --- Config ---
-const int DRIVE_SPEED = 180;   // forward speed for M1 + M2 (0–255)
+const int DRIVE_SPEED = 170;   // forward speed for M1 + M2 (0–255)
 const int TURN_SCALE  = 255;   // max turning power
 
 // --- Serial ---

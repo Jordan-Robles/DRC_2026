@@ -65,12 +65,12 @@ try:
             continue
 
         # Show live stream
-        cv2.imshow("Live Stream", image)
+        cv2.imshow("Live Stream", ColourFilter.img_preprocess(image))
         key = cv2.waitKey(1) & 0xFF
         if key == 27:  # ESC key
             print("ESC pressed. Exiting...")
             break
-
+        
         # Predict steering angle
         input_image = ColourFilter.img_preprocess(image)
         input_image = np.expand_dims(input_image, axis=0)

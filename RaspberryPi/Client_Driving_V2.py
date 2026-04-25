@@ -51,7 +51,7 @@ try:
         # Encode image
         result, frame_encoded = cv2.imencode('.jpg', frame, encode_param)
         data = pickle.dumps(frame_encoded)
-        message_size = struct.pack("L", len(data))  # 'L' = unsigned long
+        message_size = struct.pack("!I", len(data))  # 'L' = unsigned long
 
         try:
             # Send frame to laptop
