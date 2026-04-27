@@ -1,0 +1,224 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+
+WorldInfo {
+  contactProperties [
+    ContactProperties {
+      material2 "wheel"
+      coulombFriction [
+        0.02
+      ]
+    }
+  ]
+}
+Viewpoint {
+  orientation 0.12900830716704692 -0.11855203977783678 -0.9845314979960809 5.4452757311264905
+  position -4.816379410255696 -3.9952678814171585 1.1372693456246032
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+Solid {
+  translation -0.59 0.31 -0.19
+  children [
+    Transform {
+      scale 0.0009 0.0009 0.0009
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0 0.666667 1
+            roughness 1
+          }
+          geometry Mesh {
+            url [
+              "DRC_blue_mid.stl"
+            ]
+          }
+        }
+        Shape {
+          appearance PBRAppearance {
+            baseColor 1 1 0.498039
+            roughness 1
+          }
+          geometry Mesh {
+            url [
+              "DRC_yellow_mid.stl"
+            ]
+          }
+        }
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0 0.666667 1
+            roughness 1
+          }
+          geometry Mesh {
+            url [
+              "DRC_blue_main.stl"
+            ]
+          }
+        }
+        Shape {
+          appearance PBRAppearance {
+            baseColor 1 1 0.498039
+            roughness 1
+          }
+          geometry Mesh {
+            url [
+              "DRC_yellow_main.stl"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
+RectangleArena {
+  floorSize 7 8.5
+  floorAppearance PBRAppearance {
+    baseColor 0.392157 0.392157 0.392157
+    roughness 1
+    metalness 0
+  }
+}
+Robot {
+  translation -2.93082 -2.32635 0.00946226
+  rotation 0.0006940918327215245 1.5591896242300352e-05 -0.9999997589966813 1.66517
+  children [
+    DEF Right HingeJoint {
+      jointParameters HingeJointParameters {
+        position -0.49598527323785
+        axis -0.5 0.866 0
+        anchor -0.0668 0.116 0.02
+      }
+      device [
+        RotationalMotor {
+          name "Right_motor"
+        }
+      ]
+      endPoint Solid {
+        translation -0.06679939961556383 0.11573600715036336 0.019928856378495126
+        rotation -0.14031047042355915 -0.24303199342668236 0.9598168690227175 2.129544229930679
+        children [
+          DEF Right_wheel Shape {
+            appearance PBRAppearance {
+              baseColor 0 0 0
+            }
+            geometry Mesh {
+              url [
+                "Kiwi_wheel.stl"
+              ]
+            }
+          }
+        ]
+        contactMaterial "wheel"
+        boundingObject USE Right_wheel
+        physics DEF Physics_wh Physics {
+        }
+      }
+    }
+    DEF Left HingeJoint {
+      jointParameters HingeJointParameters {
+        position -0.49599286948797816
+        axis 0.5 0.866 0
+        anchor -0.066815 -0.115727 0.02
+      }
+      device [
+        RotationalMotor {
+          name "Left_motor"
+        }
+      ]
+      endPoint Solid {
+        translation -0.06681499999999939 -0.1157269999999998 0.02000000000000018
+        rotation 0.14031294626537777 -0.24303490671475692 -0.9598157694206105 2.129549998892422
+        children [
+          DEF Left_wheel Shape {
+            appearance PBRAppearance {
+              baseColor 0 0 0
+            }
+            geometry Mesh {
+              url [
+                "Kiwi_wheel.stl"
+              ]
+            }
+          }
+        ]
+        name "solid(1)"
+        contactMaterial "wheel"
+        boundingObject USE Right_wheel
+        physics USE Physics_wh
+      }
+    }
+    DEF Rear HingeJoint {
+      jointParameters HingeJointParameters {
+        position 2.1973755061839575
+        anchor 0 0 0.02
+      }
+      device [
+        RotationalMotor {
+          name "Rear_motor"
+        }
+      ]
+      endPoint Solid {
+        translation 0.13362999999999853 -1.3880853892818365e-17 0.01999999999999999
+        rotation 0.9999999999999999 0 0 2.1973755061839575
+        children [
+          DEF Rear_wheel Shape {
+            appearance PBRAppearance {
+              baseColor 0 0 0
+            }
+            geometry Mesh {
+              url [
+                "Kiwi_wheel.stl"
+              ]
+            }
+          }
+        ]
+        name "solid(2)"
+        contactMaterial "wheel"
+        boundingObject USE Rear_wheel
+        physics USE Physics_wh
+      }
+    }
+    DEF Body Solid {
+      children [
+        Camera {
+          translation -0.092 -0.014 0.202
+          width 1280
+          height 720
+        }
+        DEF Body Shape {
+          appearance PBRAppearance {
+            baseColor 1 0 0
+            roughness 1
+          }
+          geometry Mesh {
+            url [
+              "Kiwi_body.stl"
+            ]
+          }
+        }
+      ]
+      name "solid(3)"
+      boundingObject USE Body
+      physics Physics {
+        mass 1.7
+        centerOfMass [
+          0 0 -0.03
+        ]
+      }
+    }
+  ]
+  contactMaterial "wheel"
+  boundingObject Mesh {
+    url [
+      "Kiwi_body.stl"
+    ]
+  }
+  physics Physics {
+  }
+  controller "Kiwi_Control"
+}
