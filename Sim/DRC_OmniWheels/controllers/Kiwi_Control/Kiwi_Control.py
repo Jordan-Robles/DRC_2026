@@ -11,9 +11,9 @@ SERIAL_TIMEOUT   = 0.02
 PWM_MIN          = 1000
 PWM_CENTER       = 1500
 PWM_MAX          = 2000
-FORWARD_SPEED    = 20.0
-MAX_REAR_SPEED   = 25.0
-TURN_SPEED_FACTOR = 0.4  # fraction of FORWARD_SPEED at full steering lock
+FORWARD_SPEED    = 15.0
+MAX_REAR_SPEED   = 30.0
+#TURN_SPEED_FACTOR = 0.4  # fraction of FORWARD_SPEED at full steering lock
 # ─────────────────────────────────────────────────────────────────────────────
 
 def pwm_to_steering(pwm_us):
@@ -96,8 +96,8 @@ if __name__ == "__main__":
         steering = read_steering(ser, steering)
 
         # Scale drive speed down when steering to prevent rear wheel lockup
-        speed_scale = 1.0 - (1.0 - TURN_SPEED_FACTOR) * abs(steering)
-        drive_cmd   = -FORWARD_SPEED * speed_scale
+        #speed_scale = 1.0 - (1.0 - TURN_SPEED_FACTOR) * abs(steering)
+        drive_cmd   = -FORWARD_SPEED #* speed_scale
         rear_cmd    =  steering * min(MAX_REAR_SPEED, rear_motor.getMaxVelocity())
 
         print(f"steering={steering:+.4f}  drive={drive_cmd:+.3f}  rear={rear_cmd:+.3f}")

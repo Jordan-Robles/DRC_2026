@@ -161,7 +161,7 @@ def random_augment(image, steering_angle):
 #will need to replace the funciton with code that reads the csv file gnereated from the gui
 
 def img_preprocess(img): #pre-process our data to be used inside our model
-    img = img[60:135,: ] #crops out the parts of the image that isnt in the range of 60:135, hence keeping only the road 
+    img = img[:135,: ] # img[60:135,: ] crops out the parts of the image that isnt in the range of 60:135, hence keeping only the road 
     hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV) #converts the image from RGB to HSV colour space, which is more suitable for colour detection
 
     # Yellow mask
@@ -289,4 +289,4 @@ plt.xlabel('Epoch')
 
 plt.show()
 
-model.save('model_DRC_2026Test45.h5')
+model.save('model_DRC_2026Test_imgPro.h5')
