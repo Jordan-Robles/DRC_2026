@@ -7,6 +7,7 @@ import csv
 import os
 import time
 from datetime import datetime
+#This code is for ackerman platform
 
 # === CONFIG ===
 OUTPUT_DIR = r'C:\Users\jorda\DRC_2026\Data'

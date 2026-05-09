@@ -1,3 +1,5 @@
+//THis code is for Serial communitcaion from Raspberry pi to the arduino, use this code for actual driving
+
 // --- Pin definitions for the L298n ---
 const int M1_EN  = 9;
 const int M1_IN1 = 2;
