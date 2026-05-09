@@ -13,7 +13,7 @@ from Colour_filters import ColourFilter
 
 # === CONFIG ===
 PORT = 9999  
-MODEL_PATH = r'C:\Users\jorda\DRC_2026\DRC_2026\Trained_Models\model_DRC_2026Test5.h5'#r'C:\Users\jorda\DRC\DRC_Code1\Course\model.h5' #r'C:\Users\jorda\DRC\DRC_Code1\model_DRC_V2.h5' 
+MODEL_PATH = r'C:\Users\jorda\DRC_2026\DRC_2026\Trained_Models\model_DRC_2026Test_imgPro.h5'#r'C:\Users\jorda\DRC\DRC_Code1\Course\model.h5' #r'C:\Users\jorda\DRC\DRC_Code1\model_DRC_V2.h5' 
 # === Load the model ===
 print("Loading model...")
 model = load_model(MODEL_PATH, compile=False)  # Do not auto-load 'mse'

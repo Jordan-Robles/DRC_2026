@@ -2,50 +2,60 @@ import socket
 import cv2
 import pickle
 import struct
-import pigpio
+import serial
+import threading
 
 # === Config ===
 SERVER_IP = '192.168.0.225'
 PORT = 9999
 cam_indexes = [0]
-RC_PIN = 4  # GPIO pin connected to RC receiver signal (adjust as needed)
+SERIAL_PORT = '/dev/ttyUSB0'  # Change to /dev/ttyACM0 if needed
+BAUD_RATE = 9600
 
-# === PWM Reading Setup ===
-pi = pigpio.pi()
-if not pi.connected:
-    raise Exception("Failed to connect to pigpio daemon")
+# === Serial Setup ===
+ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
 
-# Variables to store pulse width
-pulse_width = 1500  # Default middle position
+# Thread-safe store for the latest RC value
+latest_value = 0.0
+serial_lock = threading.Lock()
 
-def pwm_callback(gpio, level, tick):
-    global pulse_width, pulse_start
-    if level == 1:  # Rising edge
-        pulse_start = tick
-    elif level == 0:  # Falling edge
-        pulse_width = tick - pulse_start
+def serial_reader():
+    """Background thread: reads mapped_value lines from Arduino."""
+    global latest_value
+    buffer = ""
+    while True:
+        try:
+            char = ser.read(1).decode('utf-8', errors='ignore')
+            if char == '\n':
+                line = buffer.strip()
+                buffer = ""
+                if line:
+                    try:
+                        val = float(line)
+                        with serial_lock:
+                            latest_value = val
+                    except ValueError:
+                        pass  # Ignore non-float lines (e.g. "RC Ready")
+            else:
+                buffer += char
+        except Exception as e:
+            print(f"Serial read error: {e}")
+            break
 
-# Set up callback for PWM reading
-pulse_start = 0
-pi.set_mode(RC_PIN, pigpio.INPUT)
-pi.callback(RC_PIN, pigpio.EITHER_EDGE, pwm_callback)
+# Start background serial reader thread
+reader_thread = threading.Thread(target=serial_reader, daemon=True)
+reader_thread.start()
 
-def map_pwm_to_range(pwm_value, min_pwm=1000, max_pwm=2000, min_out=-1.0, max_out=1.0):
-    """Map PWM value (typically 1000-2000) to desired range (-1 to 1)"""
-    # Clamp to expected range
-    pwm_value = max(min_pwm, min(max_pwm, pwm_value))
-    # Map to output range
-    return min_out + (pwm_value - min_pwm) * (max_out - min_out) / (max_pwm - min_pwm)
-
-# === Camera setup ===
+# === Camera Setup ===
 cams = [cv2.VideoCapture(i) for i in cam_indexes]
 for cam in cams:
-    cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640) #PS3_resolution
+    cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-# === Connect to laptop ===
+# === Connect to Laptop ===
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 client_socket.connect((SERVER_IP, PORT))
+print("Connected to server")
 
 try:
     while True:
@@ -56,16 +66,14 @@ try:
                 frame = None
             frames.append(frame)
 
-        # === Read current PWM pulse width and map to -1 to 1 ===
-        # RC receivers typically output 1000-2000 microseconds
-        # 1500 is center/neutral position (0.0)
-        current_pulse = pulse_width
-        mapped_value = map_pwm_to_range(current_pulse)
+        # === Grab latest RC value from Arduino ===
+        with serial_lock:
+            mapped_value = latest_value
 
         # === Package frames + mapped value ===
         payload = {
             "frames": frames,
-            "mapped_value": mapped_value  # Mapped to -1.0 to 1.0
+            "mapped_value": mapped_value  # -1.0 to 1.0 from Arduino
         }
 
         data = pickle.dumps(payload)
@@ -79,4 +87,4 @@ finally:
     for cam in cams:
         cam.release()
     client_socket.close()
-    pi.stop()  # Cleanup pigpio connection
+    ser.close()
