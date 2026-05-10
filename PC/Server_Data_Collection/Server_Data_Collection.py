@@ -10,7 +10,7 @@ from datetime import datetime
 import random
 
 # === CONFIG ===
-OUTPUT_DIR = r'C:\Users\jorda\DRC\Testing_Data\Test3'
+OUTPUT_DIR = r'C:\Users\jorda\DRC\Testing_Data\test6'
 CSV_FILE = os.path.join(OUTPUT_DIR, 'labels.csv')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 #NUM_IMAGES = 100  #Amount of images to capture
@@ -59,7 +59,11 @@ while True:
         frame_data = data[:msg_size]
         data = data[msg_size:]
 
-        frames = pickle.loads(frame_data)
+                # -- INTEGRATED NEW CODE --
+        payload = pickle.loads(frame_data)
+        frames = payload["frames"]
+        mapped_value = payload["mapped_value"]
+
         resized = [cv2.resize(f, (320, 240)) if f is not None else np.zeros((240, 320, 3), np.uint8) for f in frames]
         combined = np.hstack(resized) 
 
@@ -70,11 +74,15 @@ while True:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
 
         for cam_id, frame in enumerate(resized):
-            angle = round(random.uniform(-1, 1), 2)
+            # Using the actual angle from the payload
+            angle = mapped_value 
             img_filename = f"centre_{timestamp}.jpg" #cam{cam_id}_{timestamp}.jpg
             img_path = os.path.join(OUTPUT_DIR, img_filename)
             cv2.imwrite(img_path, frame)
             csv_writer.writerow([timestamp, cam_id, img_filename, angle])
+
+            csv_file.flush()
+
             print(f"[{frame_counter}] Saved {img_filename} with angle {angle}")
 
         frame_counter += 1
@@ -88,6 +96,9 @@ while True:
 
     except Exception as e:
         print(f"Error: {e}")
+        break
+    except KeyboardInterrupt:
+        print("stopped manually")
         break
 
 # Cleanup

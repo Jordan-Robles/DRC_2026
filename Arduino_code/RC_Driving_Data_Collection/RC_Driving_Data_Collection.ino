@@ -20,7 +20,7 @@ const int RC_THROTTLE_PIN = 7;
 
 // --- Config ---
 const int TURN_SCALE  = 255;   // max turning power
-const int DRIVE_SPEED = 200;   // max drive speed (0–255)
+const int DRIVE_SPEED = 255;   // max drive speed (0–255)
 
 // --- RC PWM calibration (microseconds) ---
 // Adjust these to match your transmitter's actual output
@@ -66,18 +66,15 @@ long readPWM(int pin) {
 
 // --- Map PWM to a -1.0 to 1.0 float with deadband ---
 float pwmToFloat(long pwm) {
-  if (pwm < 0) return 0.0; // no signal
+  if (pwm < 0) return 0.0;  // no signal
 
   pwm = constrain(pwm, RC_MIN, RC_MAX);
 
   // Apply deadband around centre
   if (abs(pwm - RC_MID) < RC_DEADBAND) return 0.0;
 
-  if (pwm < RC_MID) {
-    return (float)(pwm - (RC_MID - RC_DEADBAND)) / (float)(RC_MID - RC_DEADBAND - RC_MIN) * -1.0;
-  } else {
-    return (float)(pwm - (RC_MID + RC_DEADBAND)) / (float)(RC_MAX - (RC_MID + RC_DEADBAND));
-  }
+  // Map directly: 1000 -> -1.0, 1500 -> 0.0, 2000 -> 1.0
+  return (float)(pwm - RC_MID) / (float)(RC_MAX - RC_MID);
 }
 
 // --- Setup ---
@@ -115,7 +112,7 @@ void loop() {
   setMotor(M2_EN, M2_IN1, M2_IN2, driveSpeed);
 
   // --- Steering motor M3 ---
-  int turnPower = (int)(steeringVal * TURN_SCALE);
+  int turnPower = (int)(-(steeringVal * TURN_SCALE));
   if (turnPower != 0 && abs(turnPower) < 150) {
     turnPower = (turnPower > 0) ? 150 : -150;
   }
