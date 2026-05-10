@@ -3,6 +3,8 @@
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/vehicles/protos/abstract/AckermannVehicle.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/vehicles/protos/abstract/VehicleWheel.proto"
 
 WorldInfo {
   contactProperties [
@@ -15,8 +17,8 @@ WorldInfo {
   ]
 }
 Viewpoint {
-  orientation 0.5806025291230679 -0.5305493703284825 -0.6175905349177138 4.270879478736962
-  position -3.0985162534943727 -2.643018182307748 3.0041596999564018
+  orientation 0.5073747973976838 -0.47856163248182093 -0.7166237359186437 4.393246230637573
+  position -2.977230828604937 -3.027346911709673 1.6141072793927913
   follow "robot:solid(3)"
 }
 TexturedBackground {
@@ -184,8 +186,8 @@ Robot {
         }
       ]
       endPoint Solid {
-        translation 0.13363028409373667 -3.244515581629783e-08 0.02001290133116146
-        rotation 0.9999999999983317 -1.617485241544726e-06 8.489114417220861e-07 0.968209459739731
+        translation 0.13363028409373606 -3.244515581629783e-08 0.02001290133116146
+        rotation 0.9999999999983316 -1.6174852416205439e-06 8.489114417618778e-07 0.968209459739731
         children [
           DEF Rear_wheel Shape {
             appearance PBRAppearance {
@@ -253,4 +255,39 @@ Robot {
   physics Physics {
   }
   controller "Kiwi_Control"
+}
+AckermannVehicle {
+  hidden rotation_1 0 0 1 6.283185307179586
+  hidden rotation_2 0 0 1 6.283185307179586
+  translation -4.81 -1.99 0.04
+  rotation 0 0 1 1.5708
+  trackFront 0.178
+  trackRear 0.178
+  wheelbase 0.272
+  wheelFrontRight VehicleWheel {
+    name "front right wheel"
+    thickness 0.027
+    tireRadius 0.0305
+    centralInnerRadius 0.01
+  }
+  wheelFrontLeft VehicleWheel {
+    name "front left wheel"
+    thickness 0.027
+    tireRadius 0.0305
+    centralInnerRadius 0.01
+    wheelSide TRUE
+  }
+  wheelRearRight VehicleWheel {
+    name "rear right wheel"
+    thickness 0.027
+    tireRadius 0.0305
+    centralInnerRadius 0.01
+  }
+  wheelRearLeft VehicleWheel {
+    name "rear left wheel"
+    thickness 0.027
+    tireRadius 0.0305
+    centralInnerRadius 0.01
+    wheelSide TRUE
+  }
 }

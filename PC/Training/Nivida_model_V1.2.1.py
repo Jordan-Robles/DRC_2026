@@ -5,9 +5,10 @@ import matplotlib.image as mpimg
 import keras
 from keras.models import Sequential
 from keras.optimizers import Adam
-from keras.layers import Convolution2D, MaxPooling2D, Dropout, Flatten, Dense
-from sklearn.utils import shuffle 
+from keras.layers import Convolution2D, MaxPooling2D, Dropout, Flatten, Dense, BatchNormalization, Activation
+from sklearn.utils import shuffle
 from sklearn.model_selection import train_test_split # used ofr training and validation split
+from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping
 from imgaug import augmenters as iaa #Image Aug
 import cv2
 import pandas as pd
@@ -243,25 +244,36 @@ plt.show()
 def nvidia_model(): #uses 200x66 images
     #Note: look out for dead neurons, if a node gets the input of a negative number, it will return a zero
     model = Sequential()
-    model.add(Convolution2D(24, (5, 5), strides=(2,2), input_shape=(66,200,3), activation = 'elu' ))#1st argument is the number of filters and the 2n&3rd are the dimensions of the kernal
-    #subsample(2,2), it will move 2 pixels across and 2 pixels vertical
-    
-    model.add(Convolution2D(36, (5, 5), strides =(2,2), activation = 'elu'))
-    
+    model.add(Convolution2D(24, (5, 5), strides=(2,2), input_shape=(66,200,3), use_bias=False))#1st argument is the number of filters and the 2n&3rd are the dimensions of the kernal
+    model.add(BatchNormalization())
+    model.add(Activation('elu'))
+
+    model.add(Convolution2D(36, (5, 5), strides =(2,2), use_bias=False))
+    model.add(BatchNormalization())
+    model.add(Activation('elu'))
     #model.add(Dropout(0.5)) #extra dropout layers added to solve the problem of the data overfitting 
 
-    model.add(Convolution2D(48, (5, 5), strides =(2,2), activation = 'elu'))
-
+    model.add(Convolution2D(48, (5, 5), strides =(2,2), use_bias=False))
+    model.add(BatchNormalization())
+    model.add(Activation('elu'))
     #model.add(Dropout(0.5)) #extra dropout layers added to solve the problem of the data overfitting 
 
-    model.add(Convolution2D(64, (3, 3), activation = 'elu')) # we take away the subsampling as the image has been propocessed enough so we stick to a stride lenght of 1
-    model.add(Convolution2D(64, (3, 3), activation = 'elu'))
+    model.add(Convolution2D(64, (3, 3), use_bias=False)) # we take away the subsampling as the image has been propocessed enough so we stick to a stride lenght of 1
+    model.add(BatchNormalization())
+    model.add(Activation('elu'))
+
+    model.add(Convolution2D(64, (3, 3), use_bias=False))
+    model.add(BatchNormalization())
+    model.add(Activation('elu'))
     #model.add(Dropout(0.4)) #Turns in the random inputs they recieve into 0 (50% in this case). Helps with overfitting data
 
+
     model.add(Flatten()) #flattens the data to a 1D array to pass throguht the fully connected layer
+
     model.add(Dense(100, activation ='elu'))
-    #model.add(Dropout(0.4))
+    model.add(Dropout(0.3))
     model.add(Dense(50, activation ='elu'))
+    model.add(Dropout(0.2))
     model.add(Dense(10, activation ='elu'))
     model.add(Dense(1))
 
@@ -272,13 +284,22 @@ def nvidia_model(): #uses 200x66 images
 model = nvidia_model()
 print(model.summary())
 
+lr_scheduler = ReduceLROnPlateau(
+    monitor='val_loss', factor=0.5, patience=2, min_lr=1e-6, verbose=1
+)
+
+early_stop = EarlyStopping(
+    monitor='val_loss', patience=5, restore_best_weights=True
+)
+
 history = model.fit(batch_generator(X_train, Y_train, 100, 1), 
                               steps_per_epoch =300, 
-                              epochs = 10, 
+                              epochs = 30, 
                               validation_data = batch_generator(X_valid, Y_valid, 100, 0), 
                               validation_steps=200, 
                               verbose = 1, 
-                              shuffle = 1)
+                              shuffle = 1,
+                              callbacks = [lr_scheduler, early_stop])
 
 
 plt.figure()
@@ -290,4 +311,4 @@ plt.xlabel('Epoch')
 
 plt.show()
 
-model.save('model_DRC_2026Test_imgPro.h5')
+model.save('model_DRC_2026_V1.h5')
