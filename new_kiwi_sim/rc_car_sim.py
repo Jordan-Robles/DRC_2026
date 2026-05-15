@@ -35,7 +35,7 @@ ROBOT_RADIUS_M = 0.090        # body radius for drawing (m)
 CAM_ARRAY_R_M  = 0.080        # hex camera array radius (m)
 CAM_HFOV_DEG   = 63.0         # per-camera horizontal FOV
 CAM_NEAR_M     = 0.242        # near sensing distance (m)
-CAM_FAR_M      = 0.600        # far sensing distance / IPM cap (m)
+CAM_FAR_M      = 0.750        # far sensing distance / IPM cap (m)
 NUM_CAMS       = 6
 
 TAPE_W_M       = 0.036        # tape width (m)

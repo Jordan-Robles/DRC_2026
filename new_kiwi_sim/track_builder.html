@@ -47,6 +47,10 @@ const SEGS = [
   {id:"a1_nw",  label:"R1.0 NW",     cat:"Arc R=1.0m"},
   {id:"a1_se",  label:"R1.0 SE",     cat:"Arc R=1.0m"},
   {id:"a1_sw",  label:"R1.0 SW",     cat:"Arc R=1.0m"},
+  {id:"hc_n",   label:"½ circle N",  cat:"Half Circle"},
+  {id:"hc_s",   label:"½ circle S",  cat:"Half Circle"},
+  {id:"hc_e",   label:"½ circle E",  cat:"Half Circle"},
+  {id:"hc_w",   label:"½ circle W",  cat:"Half Circle"},
 ];
 
 // Draw a segment. All coords relative to canvas origin (already translated).
@@ -60,39 +64,81 @@ function drawSeg(ctx, id, col, row, cp, color) {
 
   const L = col * cp,       T = row * cp;
   const R = (col+1) * cp,   B = (row+1) * cp;
+  const ins = tw / 2;   // inset distance (half tape width)
 
-  const inset = tw / 2;
   ctx.beginPath();
   if (id === "sh_t") {
-    ctx.moveTo(L, T + inset); ctx.lineTo(R, T + inset); ctx.stroke();
+    // Full cell width — no end gaps between adjacent cells.
+    // lineCap butt + full extent means adjacent sh_t tiles connect seamlessly.
+    ctx.moveTo(L, T + ins); ctx.lineTo(R, T + ins); ctx.stroke();
   } else if (id === "sh_b") {
-    ctx.moveTo(L, B - inset); ctx.lineTo(R, B - inset); ctx.stroke();
+    ctx.moveTo(L, B - ins); ctx.lineTo(R, B - ins); ctx.stroke();
   } else if (id === "sv_l") {
-    ctx.moveTo(L + inset, T); ctx.lineTo(L + inset, B); ctx.stroke();
+    ctx.moveTo(L + ins, T); ctx.lineTo(L + ins, B); ctx.stroke();
   } else if (id === "sv_r") {
-    ctx.moveTo(R - inset, T); ctx.lineTo(R - inset, B); ctx.stroke();
+    ctx.moveTo(R - ins, T); ctx.lineTo(R - ins, B); ctx.stroke();
   } else if (id === "d_nwse") {
+    // Diagonal ╲ — endpoints pulled inward by ins/√2 on each axis so they
+    // land at the same inset corner that straights use
+    const di = ins / Math.SQRT2;
     ctx.lineCap = "round";
-    ctx.moveTo(L, T); ctx.lineTo(R, B);
+    ctx.moveTo(L + di, T + di); ctx.lineTo(R - di, B - di);
     ctx.stroke();
   } else if (id === "d_nesw") {
+    // Diagonal ╱
+    const di = ins / Math.SQRT2;
     ctx.lineCap = "round";
-    ctx.moveTo(R, T); ctx.lineTo(L, B);
+    ctx.moveTo(R - di, T + di); ctx.lineTo(L + di, B - di);
+    ctx.stroke();
+  } else if (id.startsWith("hc_")) {
+    // Half-circle fitting one cell. r=cp/2. Centre on flat boundary edge.
+    // Canvas convention: 0=right, π/2=DOWN, π=left, 3π/2=up (Y-down).
+    // anticlockwise=false → angle INCREASES (visually CW in Y-down coords).
+    // anticlockwise=true  → angle DECREASES (visually CCW).
+    //
+    // hc_e (REFERENCE — known good): flat RIGHT (x=R-ins), dome LEFT
+    //   arc(R-ins, midY, r, π/2, -π/2, false)
+    //   increasing from π/2: π/2(down)→π(left)→3π/2(up) → left semicircle ✓
+    //
+    // hc_w: flat LEFT (x=L+ins), dome RIGHT
+    //   arc(L+ins, midY, r, -π/2, π/2, false)
+    //   increasing from -π/2: -π/2(up)→0(right)→π/2(down) → right semicircle ✓
+    //
+    // hc_n: flat TOP (y=T+ins), dome DOWN
+    //   arc(midX, T+ins, r, π, 0, true)
+    //   decreasing from π: π(left)→π/2(down)→0(right) → bottom semicircle ✓
+    //
+    // hc_s: flat BOTTOM (y=B-ins), dome UP
+    //   arc(midX, B-ins, r, 0, π, true)
+    //   decreasing from 0: 0(right)→-π/2=3π/2(up)→-π=π(left) → top semicircle ✓
+    const dir = id.slice(3);
+    const hr  = cp / 2;
+    ctx.lineCap = "butt";
+    let ocx, ocy, a0, a1, ccw;
+    if (dir === "n") { ocx=(L+R)/2; ocy=T+ins;   a0=Math.PI;     a1=0;          ccw=true;  }
+    if (dir === "s") { ocx=(L+R)/2; ocy=B-ins;   a0=0;           a1=Math.PI;    ccw=true;  }
+    if (dir === "e") { ocx=R-ins;   ocy=(T+B)/2; a0=Math.PI/2;   a1=-Math.PI/2; ccw=false; }
+    if (dir === "w") { ocx=L+ins;   ocy=(T+B)/2; a0=-Math.PI/2;  a1=Math.PI/2;  ccw=false; }
+    ctx.arc(ocx, ocy, hr, a0, a1, ccw);
     ctx.stroke();
   } else {
+    // Quarter-arc corners (a05_* and a1_*)
+    // The arc centreline is inset by ins from the cell boundary so the stroke
+    // edge aligns exactly with straight segments at the same inset.
     const isR1 = id.startsWith("a1_");
     const dir  = id.slice(id.lastIndexOf("_")+1);
     const r    = isR1 ? cp*2 : cp;
-    let ocx, ocy, a0, a1, ccw;
-    // NE: corner at bottom-left of cell, arc goes up then right
-    if (dir==="ne") { ocx=L; ocy=B; a0=-Math.PI/2; a1=0;           ccw=false; }
-    // NW: corner at bottom-right, arc goes up then left
-    if (dir==="nw") { ocx=R; ocy=B; a0=-Math.PI;   a1=-Math.PI/2;  ccw=false; }
-    // SE: corner at top-left, arc goes down then right
-    if (dir==="se") { ocx=L; ocy=T; a0=Math.PI/2;  a1=0;           ccw=true;  }
-    // SW: corner at top-right, arc goes down then left
-    if (dir==="sw") { ocx=R; ocy=T; a0=Math.PI/2;  a1=Math.PI;     ccw=false; }
-    ctx.arc(ocx, ocy, r, a0, a1, ccw);
+    let ocx, ocy, a0, a1, ccw, ri;
+    // For each corner the arc touches two cell edges; we offset the radius
+    // so the outer edge of the stroke lands on the inset line of each edge.
+    // NE: centre at bottom-left corner; arc goes from top (−90°) to right (0°)
+    // The arc passes near the top edge (inset down by ins) and right edge
+    // (inset left by ins), so centre-line radius = r − ins.
+    if (dir==="ne") { ocx=L;     ocy=B;     a0=-Math.PI/2; a1=0;           ccw=false; ri=r-ins; }
+    if (dir==="nw") { ocx=R;     ocy=B;     a0=-Math.PI;   a1=-Math.PI/2;  ccw=false; ri=r-ins; }
+    if (dir==="se") { ocx=L;     ocy=T;     a0=Math.PI/2;  a1=0;           ccw=true;  ri=r-ins; }
+    if (dir==="sw") { ocx=R;     ocy=T;     a0=Math.PI/2;  a1=Math.PI;     ccw=false; ri=r-ins; }
+    ctx.arc(ocx, ocy, ri, a0, a1, ccw);
     ctx.stroke();
   }
 }
@@ -102,20 +148,26 @@ function makePreview(id, color, size) {
   c.width = size; c.height = size;
   const ctx = c.getContext("2d");
   ctx.fillStyle = "#1a1a1a"; ctx.fillRect(0,0,size,size);
-  // Faint grid
+  // Faint grid lines
   ctx.strokeStyle = "#2e2e2e"; ctx.lineWidth = 0.5;
   for (let i=0;i<=2;i++) {
     ctx.beginPath(); ctx.moveTo(i*size/2,0); ctx.lineTo(i*size/2,size); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(0,i*size/2); ctx.lineTo(size,i*size/2); ctx.stroke();
   }
-  const isR1 = id.startsWith("a1_");
+  const isR1  = id.startsWith("a1_");
+  const isHC  = id.startsWith("hc_");
+  // cp = cell size in preview pixels
+  // For R1.0 arcs we show a 2×2 grid so the arc fills the canvas; cp = size/2
+  // For everything else cp = size (the whole canvas is one cell)
   const cp = isR1 ? size/2 : size;
   const dir = id.includes("_") ? id.slice(id.lastIndexOf("_")+1) : "";
   let col=0, row=0;
   if (isR1) {
+    // Position the arc in the correct quadrant of the 2×2 grid
     if (dir==="ne"){col=0;row=1;} if (dir==="nw"){col=1;row=1;}
     if (dir==="se"){col=0;row=0;} if (dir==="sw"){col=1;row=0;}
   }
+  // hc_* fits within a single cell; col=0,row=0 with cp=size is correct already
   drawSeg(ctx, id, col, row, cp, color);
   return c;
 }
@@ -129,8 +181,38 @@ class App {
     this.painting=false; this.panning=false; this.panStart=null;
     this._stroke=null; this._tt=null;
     this.btnMap = {};
+    this._history = [];   // undo stack — each entry is a JSON snapshot
+    this._future  = [];   // redo stack
     this.build();
     window.addEventListener("resize", ()=>{ this.sizeCanvas(); this.redraw(); });
+    // Undo / redo keyboard shortcuts
+    window.addEventListener("keydown", e => {
+      const mac = e.metaKey, win = e.ctrlKey;
+      if (!(mac || win)) return;
+      if (e.key === "z" && !e.shiftKey) { e.preventDefault(); this.undo(); }
+      if ((e.key === "z" && e.shiftKey) || e.key === "y") { e.preventDefault(); this.redo(); }
+    });
+  }
+
+  _snapshot() {
+    // Call before any destructive change. Saves current state; clears redo stack.
+    this._history.push(JSON.stringify(this.segments));
+    if (this._history.length > 200) this._history.shift();
+    this._future = [];
+  }
+
+  undo() {
+    if (!this._history.length) { this.showToast("Nothing to undo"); return; }
+    this._future.push(JSON.stringify(this.segments));
+    this.segments = JSON.parse(this._history.pop());
+    this.redraw(); this.updateStats(); this.showToast("Undo");
+  }
+
+  redo() {
+    if (!this._future.length) { this.showToast("Nothing to redo"); return; }
+    this._history.push(JSON.stringify(this.segments));
+    this.segments = JSON.parse(this._future.pop());
+    this.redraw(); this.updateStats(); this.showToast("Redo");
   }
 
   build() {
@@ -200,23 +282,22 @@ class App {
     this.statsEl.style.cssText="display:flex;justify-content:space-between;font-size:10px;color:#555;padding:0 2px;";
     this.statsEl.innerHTML="<span>0 segments</span><span></span>";
     foot.appendChild(this.statsEl);
-    const expBtnRow = document.createElement("div");
-    expBtnRow.style.cssText="display:flex;gap:5px;";
-    const expBtn = document.createElement("button");
-    expBtn.textContent="Export .wbt";
-    expBtn.style.cssText="flex:1;background:#f5c842;color:#111;border:none;border-radius:5px;padding:8px 0;font-family:inherit;font-size:12px;font-weight:600;";
-    expBtn.addEventListener("click",()=>this.exportWBT());
-    expBtnRow.appendChild(expBtn);
+    // Export .py (full width)
     const expPyBtn = document.createElement("button");
     expPyBtn.textContent="Export .py";
-    expPyBtn.style.cssText="flex:1;background:#3a8fff;color:#fff;border:none;border-radius:5px;padding:8px 0;font-family:inherit;font-size:12px;font-weight:600;";
+    expPyBtn.style.cssText="background:#3a8fff;color:#fff;border:none;border-radius:5px;padding:8px 0;font-family:inherit;font-size:12px;font-weight:600;";
     expPyBtn.addEventListener("click",()=>this.exportPY());
-    expBtnRow.appendChild(expPyBtn);
-    foot.appendChild(expBtnRow);
+    foot.appendChild(expPyBtn);
+    // Load .py
+    const impPyBtn = document.createElement("button");
+    impPyBtn.textContent="Load .py";
+    impPyBtn.style.cssText="background:transparent;color:#3a8fff;border:1px solid #3a8fff;border-radius:5px;padding:6px 0;font-family:inherit;font-size:11px;";
+    impPyBtn.addEventListener("click",()=>this.importPY());
+    foot.appendChild(impPyBtn);
     const clrBtn = document.createElement("button");
     clrBtn.textContent="Clear all";
     clrBtn.style.cssText="background:transparent;color:#666;border:1px solid #333;border-radius:5px;padding:6px 0;font-family:inherit;font-size:11px;";
-    clrBtn.addEventListener("click",()=>{ this.segments=[]; this.redraw(); this.updateStats(); this.showToast("Cleared"); });
+    clrBtn.addEventListener("click",()=>{ this._snapshot(); this.segments=[]; this.redraw(); this.updateStats(); this.showToast("Cleared"); });
     foot.appendChild(clrBtn);
     sb.appendChild(foot);
 
@@ -226,14 +307,23 @@ class App {
 
     const tbar = document.createElement("div");
     tbar.style.cssText="height:33px;background:#141414;border-bottom:1px solid #222;display:flex;align-items:center;padding:0 10px;gap:10px;font-size:10px;color:#555;flex-shrink:0;";
-    tbar.innerHTML="<span>LMB draw · RMB erase all on cell · Alt+drag pan · scroll zoom · layers supported</span>";
+    tbar.innerHTML="<span>LMB draw · RMB erase cell · MMB/Alt+drag pan · scroll zoom · Cmd/Ctrl+Z undo · +Shift redo</span>";
     this.zoomLbl = document.createElement("span");
     this.zoomLbl.style.cssText="margin-left:auto;color:#666;";
     this.zoomLbl.textContent="100%";
     tbar.appendChild(this.zoomLbl);
     const rstBtn = document.createElement("button");
     rstBtn.textContent="fit"; rstBtn.style.cssText="background:none;border:1px solid #333;color:#666;border-radius:4px;padding:2px 8px;font-family:inherit;font-size:10px;";
-    rstBtn.addEventListener("click",()=>{ this.zoom=1; this.pan={x:24,y:24}; this.redraw(); this.zoomLbl.textContent="100%"; });
+    rstBtn.addEventListener("click",()=>{
+      // Fit all content into view with a small margin
+      const cw=this.wrap.clientWidth||600, ch=this.wrap.clientHeight||400;
+      const margin=24;
+      const zx=(cw-margin*2)/(COLS*CELL), zy=(ch-margin*2)/(ROWS*CELL);
+      this.zoom=Math.min(6,Math.max(0.2,Math.min(zx,zy)));
+      const cp=CELL*this.zoom;
+      this.pan={x:(cw-COLS*cp)/2, y:(ch-ROWS*cp)/2};
+      this.redraw(); this.zoomLbl.textContent=Math.round(this.zoom*100)+"%";
+    });
     tbar.appendChild(rstBtn); main.appendChild(tbar);
 
     this.wrap = document.createElement("div");
@@ -305,6 +395,7 @@ class App {
     const [col,row]=this.getCell(e);
     if(col<0||col>=COLS||row<0||row>=ROWS)return;
     if(this.selType==="erase"){
+      if(!this._strokeSnapped){this._snapshot();this._strokeSnapped=true;}
       for(let i=this.segments.length-1;i>=0;i--){
         if(this.segments[i].col===col&&this.segments[i].row===row){this.segments.splice(i,1);break;}
       }
@@ -312,6 +403,7 @@ class App {
       const key=`${col},${row},${this.selType},${this.selColor}`;
       if(!this._stroke)this._stroke=new Set();
       if(!this._stroke.has(key)){
+        if(!this._strokeSnapped){this._snapshot();this._strokeSnapped=true;}
         this._stroke.add(key);
         this.segments.push({col,row,type:this.selType,color:this.selColor});
       }
@@ -328,10 +420,11 @@ class App {
       }
       if(e.button===2){
         const[col,row]=this.getCell(e);
+        this._snapshot();
         this.segments=this.segments.filter(s=>!(s.col===col&&s.row===row));
         this.redraw(); this.updateStats(); return;
       }
-      this._stroke=new Set(); this.painting=true; this.paintCell(e);
+      this._stroke=new Set(); this._strokeSnapped=false; this.painting=true; this.paintCell(e);
     });
     w.addEventListener("mousemove",e=>{
       const[col,row]=this.getCell(e);
@@ -340,7 +433,7 @@ class App {
       if(this.panning&&this.panStart){this.pan={x:e.clientX-this.panStart.x,y:e.clientY-this.panStart.y};this.redraw();return;}
       if(this.painting)this.paintCell(e);
     });
-    const up=()=>{this.painting=false;this.panning=false;this._stroke=null;w.style.cursor="crosshair";};
+    const up=()=>{this.painting=false;this.panning=false;this._stroke=null;this._strokeSnapped=false;w.style.cursor="crosshair";};
     w.addEventListener("mouseup",up); w.addEventListener("mouseleave",up);
     w.addEventListener("wheel",e=>{
       e.preventDefault();
@@ -388,6 +481,105 @@ class App {
     clearTimeout(this._tt); this._tt=setTimeout(()=>{this.toastEl.style.opacity="0";},2500);
   }
 
+  importPY() {
+    // Open a file picker, read the selected track.py, and populate the canvas.
+    const input = document.createElement("input");
+    input.type = "file"; input.accept = ".py,text/plain";
+    input.onchange = e => {
+      const file = e.target.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const text = ev.target.result;
+        try {
+          const segs = this._parsePY(text);
+          this._snapshot();
+          this.segments = segs;
+          this.redraw(); this.updateStats();
+          this.showToast(`Loaded ${segs.length} segments`);
+        } catch(err) {
+          this.showToast("Parse error: " + err.message);
+          console.error(err);
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  }
+
+  _parsePY(text) {
+    // Fast path: file contains the embedded JSON segment list written by exportPY.
+    const marker = "# TRACK_EDITOR_DATA:";
+    const markerIdx = text.indexOf(marker);
+    if (markerIdx !== -1) {
+      const lineEnd = text.indexOf("\n", markerIdx);
+      const json    = text.slice(markerIdx + marker.length, lineEnd === -1 ? undefined : lineEnd).trim();
+      try {
+        const segs = JSON.parse(json);
+        if (Array.isArray(segs)) {
+          // Filter to only valid cells and known types so stale data can't break things
+          const knownTypes = new Set([
+            "sh_t","sh_b","sv_l","sv_r","d_nwse","d_nesw",
+            "hc_n","hc_s","hc_e","hc_w",
+            "a05_ne","a05_nw","a05_se","a05_sw",
+            "a1_ne","a1_nw","a1_se","a1_sw",
+          ]);
+          return segs.filter(s =>
+            typeof s.col==="number" && typeof s.row==="number" &&
+            s.col>=0 && s.col<COLS && s.row>=0 && s.row<ROWS &&
+            knownTypes.has(s.type) &&
+            (s.color==="yellow"||s.color==="blue")
+          );
+        }
+      } catch(e) { /* fall through to geometry parser */ }
+    }
+
+    // Slow path: no embedded data (file made by an older version).
+    // Reconstruct from geometry — handles straights/diagonals only;
+    // arcs will be missing but at least straights survive.
+    const S   = 0.5;
+    const TW  = TAPE_REAL;
+    const ins = TW / 2;
+    const EPS = 2e-3;
+    const eq  = (a,b) => Math.abs(a-b) < EPS;
+
+    const extractList = (src, name) => {
+      const re  = new RegExp(name + "\\s*=\\s*\\[[\\s\\S]*?\\]");
+      const m   = src.match(re); if (!m) return [];
+      const segRe = /\(\s*\(\s*([\d.e+\-]+)\s*,\s*([\d.e+\-]+)\s*\)\s*,\s*\(\s*([\d.e+\-]+)\s*,\s*([\d.e+\-]+)\s*\)\s*\)/g;
+      const out = []; let sm;
+      while ((sm = segRe.exec(m[0])) !== null)
+        out.push([[+sm[1],+sm[2]],[+sm[3],+sm[4]]]);
+      return out;
+    };
+
+    const segs = [];
+    const classify = (pairs, color) => {
+      pairs.forEach(([[x0,y0],[x1,y1]]) => {
+        const midX=(x0+x1)/2, midY=(y0+y1)/2;
+        for (let col=Math.max(0,Math.floor(midX/S)-1); col<=Math.min(COLS-1,Math.ceil(midX/S)); col++) {
+          for (let row=Math.max(0,Math.floor(midY/S)-1); row<=Math.min(ROWS-1,Math.ceil(midY/S)); row++) {
+            const L=col*S, T=row*S, R=L+S, B=T+S;
+            const di=ins/Math.SQRT2;
+            const tests = [
+              ["sh_t", eq(y0,T+ins)&&eq(y1,T+ins)&&eq(x0,L)&&eq(x1,R)],
+              ["sh_b", eq(y0,B-ins)&&eq(y1,B-ins)&&eq(x0,L)&&eq(x1,R)],
+              ["sv_l", eq(x0,L+ins)&&eq(x1,L+ins)&&eq(y0,T)&&eq(y1,B)],
+              ["sv_r", eq(x0,R-ins)&&eq(x1,R-ins)&&eq(y0,T)&&eq(y1,B)],
+              ["d_nwse",eq(x0,L+di)&&eq(y0,T+di)&&eq(x1,R-di)&&eq(y1,B-di)],
+              ["d_nesw",eq(x0,R-di)&&eq(y0,T+di)&&eq(x1,L+di)&&eq(y1,B-di)],
+            ];
+            for (const [type,match] of tests) {
+              if (match) { segs.push({col,row,type,color}); return; }
+            }
+          }
+        }
+      });
+    };
+    classify(extractList(text,"YELLOW_SEGMENTS"),"yellow");
+    classify(extractList(text,"BLUE_SEGMENTS"),  "blue");
+    return segs;
+  }
+
   exportPY() {
     if (!this.segments.length) { this.showToast("Nothing to export"); return; }
 
@@ -406,24 +598,48 @@ class App {
       const x0 = mx(col),     y0 = my(row);
       const x1 = mx(col + 1), y1 = my(row + 1);
 
+      const TW = TAPE_REAL;   // tape width in metres — matches the inset
+      const ins = TW / 2;
+
       if (type === "sh_t") {
-        list.push([[x0, y0], [x1, y0]]);
+        list.push([[x0, y0 + ins], [x1, y0 + ins]]);
       } else if (type === "sh_b") {
-        list.push([[x0, y1], [x1, y1]]);
+        list.push([[x0, y1 - ins], [x1, y1 - ins]]);
       } else if (type === "sv_l") {
-        list.push([[x0, y0], [x0, y1]]);
+        list.push([[x0 + ins, y0], [x0 + ins, y1]]);
       } else if (type === "sv_r") {
-        list.push([[x1, y0], [x1, y1]]);
+        list.push([[x1 - ins, y0], [x1 - ins, y1]]);
       } else if (type === "d_nwse") {
-        list.push([[x0, y0], [x1, y1]]);
+        const di = ins / Math.SQRT2;
+        list.push([[x0 + di, y0 + di], [x1 - di, y1 - di]]);
       } else if (type === "d_nesw") {
-        list.push([[x1, y0], [x0, y1]]);
+        const di = ins / Math.SQRT2;
+        list.push([[x1 - di, y0 + di], [x0 + di, y1 - di]]);
+      } else if (type.startsWith("hc_")) {
+        // Half-circle: radius = S/2, tessellated as ARC_N segments
+        const dir = type.slice(3);
+        const r   = S / 2;   // half-cell radius (no inset — matches drawSeg)
+        let ocx, ocy, a0, a1;
+        // Angles match drawSeg hc_* (r=S/2). da=a1-a0 used for linear tessellation.
+        // n/s use da=-π (decreasing), e uses da=-π (increasing=false), w uses da=+π
+        if (dir === "n") { ocx=(x0+x1)/2; ocy=y0+ins;    a0=Math.PI;    a1=0;          }
+        if (dir === "s") { ocx=(x0+x1)/2; ocy=y1-ins;    a0=0;          a1=-Math.PI;   }
+        if (dir === "e") { ocx=x1-ins;    ocy=(y0+y1)/2; a0=Math.PI/2;  a1=-Math.PI/2; }
+        if (dir === "w") { ocx=x0+ins;    ocy=(y0+y1)/2; a0=-Math.PI/2; a1=Math.PI/2;  }
+        const da = a1 - a0;
+        for (let i = 0; i < ARC_N; i++) {
+          const ta = a0 + da * i / ARC_N;
+          const tb = a0 + da * (i + 1) / ARC_N;
+          const ax = ocx + r * Math.cos(ta), ay = ocy + r * Math.sin(ta);
+          const bx = ocx + r * Math.cos(tb), by = ocy + r * Math.sin(tb);
+          list.push([[parseFloat(ax.toFixed(6)), parseFloat(ay.toFixed(6))],
+                     [parseFloat(bx.toFixed(6)), parseFloat(by.toFixed(6))]]);
+        }
       } else {
-        // Arc segments - mirror drawSeg() canvas arc geometry exactly.
-        // Canvas coords are X-right / Y-down, same as our export system.
+        // Quarter-arc corners: centreline at radius r − ins
         const isR1 = type.startsWith("a1_");
         const dir  = type.slice(type.lastIndexOf("_") + 1);
-        const r    = isR1 ? S * 2 : S;
+        const r    = (isR1 ? S * 2 : S) - ins;
         let ocx, ocy, a0, a1;
         if (dir === "ne") { ocx = x0; ocy = y1; a0 = -Math.PI / 2; a1 = 0;            }
         if (dir === "nw") { ocx = x1; ocy = y1; a0 = -Math.PI;     a1 = -Math.PI / 2; }
@@ -474,7 +690,12 @@ class App {
       fmtList(blue,   "BLUE_SEGMENTS"),
     ].join("\n");
 
-    const blob = new Blob([py], { type: "text/plain" });
+    // Embed the raw segment list as a JSON comment so importPY can round-trip
+    // perfectly without any geometry reconstruction.
+    const segJSON = JSON.stringify(this.segments);
+    const pyFull  = `# TRACK_EDITOR_DATA:${segJSON}\n` + py;
+
+    const blob = new Blob([pyFull], { type: "text/plain" });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
     a.href = url; a.download = "track.py"; a.click();
@@ -482,215 +703,6 @@ class App {
     this.showToast(`Exported track.py — ${yellow.length}Y + ${blue.length}B segs`);
   }
 
-  exportWBT() {
-    if(!this.segments.length){this.showToast("Nothing to export");return;}
-    const TH=0.005, TZ=TH/2+0.001, TAPE=TAPE_REAL, ARC_N=16;
-    const nodes=[];
-    const fs=this.segments.find(s=>(s.type==="sh_t"||s.type==="sh_b")&&s.color==="yellow");
-    const startCol=fs?fs.col:Math.floor(COLS/2), startRow=fs?fs.row:Math.floor(ROWS/2);
-    const wx=c=>(c-COLS/2)*REAL;
-    const wy=r=>-(r-ROWS/2)*REAL;
-    const col3=color=>color==="yellow"?"1.0 0.78 0.13":"0.17 0.50 1.0";
-    const S=REAL;
-
-    const addBox=(x,y,sx,sy,rot,color,name)=>{
-      const rc=rot?`\n    rotation 0 0 1 ${rot.toFixed(4)}`:"";
-      nodes.push(`  Solid {\n    translation ${x.toFixed(4)} ${y.toFixed(4)} ${TZ.toFixed(4)}${rc}\n    children [ Shape { appearance PBRAppearance { baseColor ${col3(color)} roughness 1 metalness 0 } geometry Box { size ${sx.toFixed(4)} ${sy.toFixed(4)} ${TH.toFixed(4)} } } ]\n    name "${name}"\n  }`);
-    };
-
-    this.segments.forEach((seg,idx)=>{
-      const {col,row,type,color}=seg;
-      const x0=wx(col), y0=wy(row);
-      const x1=wx(col+1), y1=wy(row+1);
-      const xc=(x0+x1)/2, yc=(y0+y1)/2;
-      const nm=`s${idx}`;
-
-      if(type==="sh_t"){
-        addBox(xc, y0 - TAPE/2, S, TAPE, 0, color, nm);
-      } else if(type==="sh_b"){
-        addBox(xc, y1 + TAPE/2, S, TAPE, 0, color, nm);
-      } else if(type==="sv_l"){
-        addBox(x0 + TAPE/2, yc, TAPE, S, 0, color, nm);
-      } else if(type==="sv_r"){
-        addBox(x1 - TAPE/2, yc, TAPE, S, 0, color, nm);
-      } else if(type==="d_nwse"){
-        addBox(xc, yc, TAPE, S*Math.SQRT2, Math.PI/4, color, nm);
-      } else if(type==="d_nesw"){
-        addBox(xc, yc, TAPE, S*Math.SQRT2, -Math.PI/4, color, nm);
-      } else {
-        const isR1=type.startsWith("a1_");
-        const dir=type.slice(type.lastIndexOf("_")+1);
-        const r=isR1?S*2:S;
-        // Map canvas corners to world corners (Y is flipped: canvas T = world larger Y)
-        let ocx,ocy,a0,a1;
-        // Canvas NE: corner at bottom-left (L,B) → world: (x0, y1)  y1<y0 in world
-        if(dir==="ne"){ocx=x0;ocy=y1;a0=Math.PI/2; a1=0;         }
-        if(dir==="nw"){ocx=x1;ocy=y1;a0=Math.PI;   a1=Math.PI/2; }
-        if(dir==="se"){ocx=x0;ocy=y0;a0=0;         a1=-Math.PI/2;}
-        if(dir==="sw"){ocx=x1;ocy=y0;a0=-Math.PI/2;a1=-Math.PI;  }
-        const sweep=Math.abs(a1-a0);
-        for(let i=0;i<ARC_N;i++){
-          const t=a0+(a1-a0)*(i+0.5)/ARC_N;
-          const px=ocx+r*Math.cos(t), py=ocy+r*Math.sin(t);
-          const segLen=r*sweep/ARC_N*1.06;
-          nodes.push(`  Solid {\n    translation ${px.toFixed(4)} ${py.toFixed(4)} ${TZ.toFixed(4)}\n    rotation 0 0 1 ${(t+Math.PI/2).toFixed(4)}\n    children [ Shape { appearance PBRAppearance { baseColor ${col3(color)} roughness 1 metalness 0 } geometry Box { size ${TAPE.toFixed(4)} ${segLen.toFixed(4)} ${TH.toFixed(4)} } } ]\n    name "${nm}_${i}"\n  }`);
-        }
-      }
-    });
-
-    const rx=wx(startCol)+S/2, ry2=wy(startRow)-S/2;
-    const wbt=`#VRML_SIM R2025a utf8
-
-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
-
-WorldInfo { title "DRC Track" basicTimeStep 16 coordinateSystem "ENU" }
-Viewpoint { orientation 0 0 1 0 position 0 0 14 follow "kiwi_robot" followType "None" }
-TexturedBackground { texture "empty_office" }
-TexturedBackgroundLight { }
-RectangleArena {
-  floorSize ${COLS*REAL} ${ROWS*REAL}
-  floorAppearance PBRAppearance { baseColor 0.18 0.18 0.18 roughness 0.9 metalness 0 }
-  wallHeight 0.05
-}
-
-${nodes.join("\n")}
-
-Robot {
-  name "kiwi_robot"
-  translation ${rx.toFixed(3)} ${ry2.toFixed(3)} 0.0694759
-  rotation 0 0 1 0
-  children [
-
-    GPS { name "gps" }
-    Gyro { name "gyro" }
-
-    DEF BODY_SHAPE Pose {
-      translation 0 0 0.03
-      children [
-        Shape {
-          appearance PBRAppearance { baseColor 0.1 0.5 0.9 roughness 0.4 metalness 0.2 }
-          geometry Cylinder { height 0.12 radius 0.10 subdivision 18 }
-        }
-      ]
-    }
-
-    DEF NOSE Pose {
-      translation 0.10 0 0.06
-      children [
-        Shape {
-          appearance PBRAppearance { baseColor 1 0.3 0.1 }
-          geometry Sphere { radius 0.015 }
-        }
-      ]
-    }
-
-    DEF SOLID1 Solid {
-      children [
-        HingeJoint {
-          jointParameters HingeJointParameters { anchor -0.1 0 0 }
-          device [ RotationalMotor { name "wheel0" maxVelocity 40 maxTorque 10 } PositionSensor { name "wheel0_sensor" } ]
-          endPoint Solid {
-            translation -0.138 0 0
-            children [
-              DEF sr1_0 HingeJoint { jointParameters HingeJointParameters { axis 0 1 0 anchor -0.02 0 0.035 } endPoint Solid { translation -0.02 0 0.035 children [ DEF r1 Pose { rotation 1 0 0 1.5708 children [ DEF ROLLER Shape { appearance PBRAppearance { baseColor 0.2 0.2 0.2 roughness 1 metalness 0 } geometry Cylinder { height 0.014 radius 0.008 } } ] } ] name "w0r1" boundingObject USE r1 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr2_0 HingeJoint { jointParameters HingeJointParameters { axis 0 -0.707107 0.707107 anchor -0.02 0.02475 0.02475 } endPoint Solid { translation -0.02 0.02475 0.02475 children [ DEF r2 Pose { rotation 1 0 0 2.27 children [ USE ROLLER ] } ] name "w0r2" boundingObject USE r2 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr3_0 HingeJoint { jointParameters HingeJointParameters { axis 0 0 1 anchor -0.02 0.035 0 } endPoint Solid { translation -0.02 0.035 0 children [ DEF r3 Pose { children [ USE ROLLER ] } ] name "w0r3" boundingObject USE r3 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr4_0 HingeJoint { jointParameters HingeJointParameters { axis 0 0.707107 0.707107 anchor -0.02 0.02475 -0.02475 } endPoint Solid { translation -0.02 0.02475 -0.02475 children [ DEF r4 Pose { rotation 1 0 0 0.76 children [ USE ROLLER ] } ] name "w0r4" boundingObject USE r4 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr5_0 HingeJoint { jointParameters HingeJointParameters { axis 0 1 0 anchor -0.02 0 -0.035 } endPoint Solid { translation -0.02 0 -0.035 children [ DEF r5 Pose { rotation 1 0 0 1.5708 children [ USE ROLLER ] } ] name "w0r5" boundingObject USE r5 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr6_0 HingeJoint { jointParameters HingeJointParameters { axis 0 -0.707107 0.707107 anchor -0.02 -0.02475 -0.02475 } endPoint Solid { translation -0.02 -0.02475 -0.02475 children [ DEF r6 Pose { rotation 1 0 0 2.27 children [ USE ROLLER ] } ] name "w0r6" boundingObject USE r6 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr7_0 HingeJoint { jointParameters HingeJointParameters { axis 0 0 1 anchor -0.02 -0.035 0 } endPoint Solid { translation -0.02 -0.035 0 children [ DEF r7 Pose { children [ USE ROLLER ] } ] name "w0r7" boundingObject USE r7 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr8_0 HingeJoint { jointParameters HingeJointParameters { axis 0 0.707107 0.707107 anchor -0.02 -0.02475 0.02475 } endPoint Solid { translation -0.02 -0.02475 0.02475 children [ DEF r8 Pose { rotation 1 0 0 0.76 children [ USE ROLLER ] } ] name "w0r8" boundingObject USE r8 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF WHEEL_VIS Pose { translation -0.02 0 0 rotation 0 1 0 1.5708 children [ Shape { appearance PBRAppearance { baseColor 0.15 0.15 0.15 roughness 1 metalness 0 } geometry Cylinder { height 0.018 radius 0.035 subdivision 20 } } ] }
-            ]
-            boundingObject Pose { translation -0.02 0 0 rotation 0 1 0 1.5708 children [ Shape { geometry Cylinder { height 0.018 radius 0.035 } } ] }
-            physics Physics { }
-          }
-        }
-      ]
-      name "wheel0_body"
-      boundingObject DEF DUMMY Sphere { radius 0.001 }
-      physics Physics { }
-    }
-
-    DEF SOLID2 Solid {
-      rotation 0 0 1 2.0944
-      children [
-        HingeJoint {
-          jointParameters HingeJointParameters { anchor -0.1 0 0 }
-          device [ RotationalMotor { name "wheel1" maxVelocity 40 maxTorque 10 } PositionSensor { name "wheel1_sensor" } ]
-          endPoint Solid {
-            translation -0.138 0 0
-            children [
-              DEF sr1_1 HingeJoint { jointParameters HingeJointParameters { axis 0 1 0 anchor -0.02 0 0.035 } endPoint Solid { translation -0.02 0 0.035 children [ USE r1 ] name "w1r1" boundingObject USE r1 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr2_1 HingeJoint { jointParameters HingeJointParameters { axis 0 -0.707107 0.707107 anchor -0.02 0.02475 0.02475 } endPoint Solid { translation -0.02 0.02475 0.02475 children [ USE r2 ] name "w1r2" boundingObject USE r2 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr3_1 HingeJoint { jointParameters HingeJointParameters { axis 0 0 1 anchor -0.02 0.035 0 } endPoint Solid { translation -0.02 0.035 0 children [ USE r3 ] name "w1r3" boundingObject USE r3 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr4_1 HingeJoint { jointParameters HingeJointParameters { axis 0 0.707107 0.707107 anchor -0.02 0.02475 -0.02475 } endPoint Solid { translation -0.02 0.02475 -0.02475 children [ USE r4 ] name "w1r4" boundingObject USE r4 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr5_1 HingeJoint { jointParameters HingeJointParameters { axis 0 1 0 anchor -0.02 0 -0.035 } endPoint Solid { translation -0.02 0 -0.035 children [ USE r5 ] name "w1r5" boundingObject USE r5 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr6_1 HingeJoint { jointParameters HingeJointParameters { axis 0 -0.707107 0.707107 anchor -0.02 -0.02475 -0.02475 } endPoint Solid { translation -0.02 -0.02475 -0.02475 children [ USE r6 ] name "w1r6" boundingObject USE r6 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr7_1 HingeJoint { jointParameters HingeJointParameters { axis 0 0 1 anchor -0.02 -0.035 0 } endPoint Solid { translation -0.02 -0.035 0 children [ USE r7 ] name "w1r7" boundingObject USE r7 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr8_1 HingeJoint { jointParameters HingeJointParameters { axis 0 0.707107 0.707107 anchor -0.02 -0.02475 0.02475 } endPoint Solid { translation -0.02 -0.02475 0.02475 children [ USE r8 ] name "w1r8" boundingObject USE r8 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              USE WHEEL_VIS
-            ]
-            boundingObject Pose { translation -0.02 0 0 rotation 0 1 0 1.5708 children [ Shape { geometry Cylinder { height 0.018 radius 0.035 } } ] }
-            physics Physics { }
-          }
-        }
-      ]
-      name "wheel1_body"
-      boundingObject USE DUMMY
-      physics Physics { }
-    }
-
-    DEF SOLID3 Solid {
-      rotation 0 0 1 4.1888
-      children [
-        HingeJoint {
-          jointParameters HingeJointParameters { anchor -0.1 0 0 }
-          device [ RotationalMotor { name "wheel2" maxVelocity 40 maxTorque 10 } PositionSensor { name "wheel2_sensor" } ]
-          endPoint Solid {
-            translation -0.138 0 0
-            children [
-              DEF sr1_2 HingeJoint { jointParameters HingeJointParameters { axis 0 1 0 anchor -0.02 0 0.035 } endPoint Solid { translation -0.02 0 0.035 children [ USE r1 ] name "w2r1" boundingObject USE r1 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr2_2 HingeJoint { jointParameters HingeJointParameters { axis 0 -0.707107 0.707107 anchor -0.02 0.02475 0.02475 } endPoint Solid { translation -0.02 0.02475 0.02475 children [ USE r2 ] name "w2r2" boundingObject USE r2 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr3_2 HingeJoint { jointParameters HingeJointParameters { axis 0 0 1 anchor -0.02 0.035 0 } endPoint Solid { translation -0.02 0.035 0 children [ USE r3 ] name "w2r3" boundingObject USE r3 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr4_2 HingeJoint { jointParameters HingeJointParameters { axis 0 0.707107 0.707107 anchor -0.02 0.02475 -0.02475 } endPoint Solid { translation -0.02 0.02475 -0.02475 children [ USE r4 ] name "w2r4" boundingObject USE r4 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr5_2 HingeJoint { jointParameters HingeJointParameters { axis 0 1 0 anchor -0.02 0 -0.035 } endPoint Solid { translation -0.02 0 -0.035 children [ USE r5 ] name "w2r5" boundingObject USE r5 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr6_2 HingeJoint { jointParameters HingeJointParameters { axis 0 -0.707107 0.707107 anchor -0.02 -0.02475 -0.02475 } endPoint Solid { translation -0.02 -0.02475 -0.02475 children [ USE r6 ] name "w2r6" boundingObject USE r6 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr7_2 HingeJoint { jointParameters HingeJointParameters { axis 0 0 1 anchor -0.02 -0.035 0 } endPoint Solid { translation -0.02 -0.035 0 children [ USE r7 ] name "w2r7" boundingObject USE r7 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              DEF sr8_2 HingeJoint { jointParameters HingeJointParameters { axis 0 0.707107 0.707107 anchor -0.02 -0.02475 0.02475 } endPoint Solid { translation -0.02 -0.02475 0.02475 children [ USE r8 ] name "w2r8" boundingObject USE r8 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
-              USE WHEEL_VIS
-            ]
-            boundingObject Pose { translation -0.02 0 0 rotation 0 1 0 1.5708 children [ Shape { geometry Cylinder { height 0.018 radius 0.035 } } ] }
-            physics Physics { }
-          }
-        }
-      ]
-      name "wheel2_body"
-      boundingObject USE DUMMY
-      physics Physics { }
-    }
-
-  ]
-  boundingObject USE BODY_SHAPE
-  physics Physics {
-    density -1
-    mass 1.2
-    centerOfMass [ 0 0 0 ]
-    damping Damping {
-      linear 0.9
-      angular 0.99
-    }
-  }
-  controller "kiwi_controller"
-}
-`;
-    const blob=new Blob([wbt],{type:"text/plain"});
-    const url=URL.createObjectURL(blob); const a=document.createElement("a");
-    a.href=url; a.download="drc_track.wbt"; a.click(); URL.revokeObjectURL(url);
-    this.showToast(`Exported — ${nodes.length} Solid nodes`);
-  }
 }
 
 new App();
