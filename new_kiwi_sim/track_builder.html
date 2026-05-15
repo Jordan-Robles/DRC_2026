@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>DRC Track Builder</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #111; font-family: 'JetBrains Mono','Fira Code',monospace; font-size:12px; color:#ccc; height:100vh; overflow:hidden; display:flex; flex-direction:column; }
+::-webkit-scrollbar { width:4px; } ::-webkit-scrollbar-track { background:#111; } ::-webkit-scrollbar-thumb { background:#333; border-radius:2px; }
+button { font-family:inherit; cursor:pointer; }
+</style>
+</head>
+<body>
+<div id="app" style="display:flex;flex:1;height:100vh;overflow:hidden;"></div>
+<script>
+/*
+  GEOMETRY:
+  - Grid cell = 0.5m real
+  - Straight H: drawn ON the top edge of the anchor cell  (y = row * cellPx)
+  - Straight V: drawn ON the left edge of the anchor cell (x = col * cellPx)
+  - Diagonals: corner to corner of cell
+  - Arc R0.5: radius = 1 cell, corner at a cell corner
+  - Arc R1.0: radius = 2 cells, corner at a cell corner
+  - Multiple segments can share the same cell (layers)
+  - RMB erases ALL segments on a cell
+  - Erase tool removes topmost segment on a cell
+*/
+const CELL = 44;
+const REAL = 0.5;
+const TAPE_REAL = 0.036;
+const COLS = 24;
+const ROWS = 20;
+const COLORS = { yellow:"#f5c842", blue:"#3a8fff" };
+
+const SEGS = [
+  {id:"sh_t",   label:"H top",        cat:"Straights"},
+  {id:"sh_b",   label:"H bottom",     cat:"Straights"},
+  {id:"sv_l",   label:"V left",       cat:"Straights"},
+  {id:"sv_r",   label:"V right",      cat:"Straights"},
+  {id:"d_nwse", label:"Diag ╲",      cat:"Diagonals"},
+  {id:"d_nesw", label:"Diag ╱",      cat:"Diagonals"},
+  {id:"a05_ne", label:"R0.5 NE",     cat:"Arc R=0.5m"},
+  {id:"a05_nw", label:"R0.5 NW",     cat:"Arc R=0.5m"},
+  {id:"a05_se", label:"R0.5 SE",     cat:"Arc R=0.5m"},
+  {id:"a05_sw", label:"R0.5 SW",     cat:"Arc R=0.5m"},
+  {id:"a1_ne",  label:"R1.0 NE",     cat:"Arc R=1.0m"},
+  {id:"a1_nw",  label:"R1.0 NW",     cat:"Arc R=1.0m"},
+  {id:"a1_se",  label:"R1.0 SE",     cat:"Arc R=1.0m"},
+  {id:"a1_sw",  label:"R1.0 SW",     cat:"Arc R=1.0m"},
+];
+
+// Draw a segment. All coords relative to canvas origin (already translated).
+// (col, row) = grid cell. cp = cell size in px.
+function drawSeg(ctx, id, col, row, cp, color) {
+  const C = COLORS[color] || COLORS.yellow;
+  const tw = Math.max(2, (TAPE_REAL / REAL) * cp);
+  ctx.strokeStyle = C;
+  ctx.lineWidth = tw;
+  ctx.lineCap = "butt";
+
+  const L = col * cp,       T = row * cp;
+  const R = (col+1) * cp,   B = (row+1) * cp;
+
+  const inset = tw / 2;
+  ctx.beginPath();
+  if (id === "sh_t") {
+    ctx.moveTo(L, T + inset); ctx.lineTo(R, T + inset); ctx.stroke();
+  } else if (id === "sh_b") {
+    ctx.moveTo(L, B - inset); ctx.lineTo(R, B - inset); ctx.stroke();
+  } else if (id === "sv_l") {
+    ctx.moveTo(L + inset, T); ctx.lineTo(L + inset, B); ctx.stroke();
+  } else if (id === "sv_r") {
+    ctx.moveTo(R - inset, T); ctx.lineTo(R - inset, B); ctx.stroke();
+  } else if (id === "d_nwse") {
+    ctx.lineCap = "round";
+    ctx.moveTo(L, T); ctx.lineTo(R, B);
+    ctx.stroke();
+  } else if (id === "d_nesw") {
+    ctx.lineCap = "round";
+    ctx.moveTo(R, T); ctx.lineTo(L, B);
+    ctx.stroke();
+  } else {
+    const isR1 = id.startsWith("a1_");
+    const dir  = id.slice(id.lastIndexOf("_")+1);
+    const r    = isR1 ? cp*2 : cp;
+    let ocx, ocy, a0, a1, ccw;
+    // NE: corner at bottom-left of cell, arc goes up then right
+    if (dir==="ne") { ocx=L; ocy=B; a0=-Math.PI/2; a1=0;           ccw=false; }
+    // NW: corner at bottom-right, arc goes up then left
+    if (dir==="nw") { ocx=R; ocy=B; a0=-Math.PI;   a1=-Math.PI/2;  ccw=false; }
+    // SE: corner at top-left, arc goes down then right
+    if (dir==="se") { ocx=L; ocy=T; a0=Math.PI/2;  a1=0;           ccw=true;  }
+    // SW: corner at top-right, arc goes down then left
+    if (dir==="sw") { ocx=R; ocy=T; a0=Math.PI/2;  a1=Math.PI;     ccw=false; }
+    ctx.arc(ocx, ocy, r, a0, a1, ccw);
+    ctx.stroke();
+  }
+}
+
+function makePreview(id, color, size) {
+  const c = document.createElement("canvas");
+  c.width = size; c.height = size;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#1a1a1a"; ctx.fillRect(0,0,size,size);
+  // Faint grid
+  ctx.strokeStyle = "#2e2e2e"; ctx.lineWidth = 0.5;
+  for (let i=0;i<=2;i++) {
+    ctx.beginPath(); ctx.moveTo(i*size/2,0); ctx.lineTo(i*size/2,size); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0,i*size/2); ctx.lineTo(size,i*size/2); ctx.stroke();
+  }
+  const isR1 = id.startsWith("a1_");
+  const cp = isR1 ? size/2 : size;
+  const dir = id.includes("_") ? id.slice(id.lastIndexOf("_")+1) : "";
+  let col=0, row=0;
+  if (isR1) {
+    if (dir==="ne"){col=0;row=1;} if (dir==="nw"){col=1;row=1;}
+    if (dir==="se"){col=0;row=0;} if (dir==="sw"){col=1;row=0;}
+  }
+  drawSeg(ctx, id, col, row, cp, color);
+  return c;
+}
+
+class App {
+  constructor() {
+    this.segments = [];
+    this.selType  = "sh_t";
+    this.selColor = "yellow";
+    this.zoom = 1; this.pan = {x:24,y:24};
+    this.painting=false; this.panning=false; this.panStart=null;
+    this._stroke=null; this._tt=null;
+    this.btnMap = {};
+    this.build();
+    window.addEventListener("resize", ()=>{ this.sizeCanvas(); this.redraw(); });
+  }
+
+  build() {
+    const app = document.getElementById("app");
+    app.innerHTML = "";
+
+    /* SIDEBAR */
+    const sb = document.createElement("div");
+    sb.style.cssText = "width:186px;background:#161616;border-right:1px solid #222;display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0;";
+    sb.innerHTML = `<div style="padding:12px 14px 10px;border-bottom:1px solid #222;flex-shrink:0;"><div style="font-size:9px;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:3px">DRC Track</div><div style="font-size:15px;font-weight:600;color:#eee">Line Builder</div></div>`;
+
+    // Color
+    const cpWrap = document.createElement("div");
+    cpWrap.style.cssText = "padding:8px 10px 7px;border-bottom:1px solid #1e1e1e;flex-shrink:0;";
+    cpWrap.innerHTML = `<div style="font-size:9px;letter-spacing:1.5px;color:#555;text-transform:uppercase;margin-bottom:5px">Tape color</div>`;
+    const cpRow = document.createElement("div"); cpRow.style.cssText="display:flex;gap:5px;";
+    ["yellow","blue"].forEach(col => {
+      const btn = document.createElement("button");
+      btn.dataset.color = col;
+      btn.style.cssText = `flex:1;padding:5px 0;border-radius:5px;border:2px solid ${this.selColor===col?"#fff":"transparent"};background:${COLORS[col]};color:#111;font-size:10px;font-weight:600;`;
+      btn.textContent = col==="yellow"?"Yellow":"Blue";
+      btn.addEventListener("click",()=>this.setColor(col));
+      cpRow.appendChild(btn);
+    });
+    cpWrap.appendChild(cpRow); sb.appendChild(cpWrap);
+
+    // Palette
+    [...new Set(SEGS.map(s=>s.cat))].forEach(cat => {
+      const items = SEGS.filter(s=>s.cat===cat);
+      const sec = document.createElement("div");
+      sec.style.cssText = "padding:8px 10px 2px;";
+      sec.innerHTML = `<div style="font-size:9px;letter-spacing:1.5px;color:#555;text-transform:uppercase;margin-bottom:5px">${cat}</div>`;
+      const g = document.createElement("div"); g.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:3px;";
+      items.forEach(seg => {
+        const btn = document.createElement("button");
+        const active = seg.id===this.selType;
+        btn.style.cssText = `padding:0;border:2px solid ${active?"#fff":"transparent"};border-radius:5px;background:${active?"#252525":"transparent"};overflow:hidden;display:flex;flex-direction:column;align-items:center;`;
+        const pc = makePreview(seg.id, this.selColor, 60);
+        pc.style.cssText = "display:block;width:60px;height:60px;";
+        btn.appendChild(pc);
+        const lbl = document.createElement("div");
+        lbl.style.cssText = `font-size:8px;color:${active?"#ddd":"#555"};padding:2px 0 4px;text-align:center;`;
+        lbl.textContent = seg.label;
+        btn.appendChild(lbl);
+        btn.addEventListener("click",()=>this.setType(seg.id));
+        this.btnMap[seg.id] = {btn,lbl,pc};
+        g.appendChild(btn);
+      });
+      sec.appendChild(g); sb.appendChild(sec);
+    });
+
+    // Erase
+    const erSec = document.createElement("div"); erSec.style.cssText="padding:8px 10px 4px;";
+    erSec.innerHTML=`<div style="font-size:9px;letter-spacing:1.5px;color:#555;text-transform:uppercase;margin-bottom:5px">Tools</div>`;
+    const erBtn = document.createElement("button"); erBtn.id="eraseBtn";
+    erBtn.style.cssText="width:100%;padding:7px 0;border:2px solid #333;border-radius:5px;background:transparent;color:#666;font-size:11px;font-family:inherit;";
+    erBtn.textContent="✕  Erase top layer";
+    erBtn.addEventListener("click",()=>this.setType("erase"));
+    erSec.appendChild(erBtn); sb.appendChild(erSec);
+
+    sb.appendChild(Object.assign(document.createElement("div"),{style:"flex:1;min-height:8px;"}));
+
+    // Footer
+    const foot = document.createElement("div");
+    foot.style.cssText="padding:8px 10px 14px;border-top:1px solid #222;display:flex;flex-direction:column;gap:5px;flex-shrink:0;";
+    this.statsEl = document.createElement("div");
+    this.statsEl.style.cssText="display:flex;justify-content:space-between;font-size:10px;color:#555;padding:0 2px;";
+    this.statsEl.innerHTML="<span>0 segments</span><span></span>";
+    foot.appendChild(this.statsEl);
+    const expBtnRow = document.createElement("div");
+    expBtnRow.style.cssText="display:flex;gap:5px;";
+    const expBtn = document.createElement("button");
+    expBtn.textContent="Export .wbt";
+    expBtn.style.cssText="flex:1;background:#f5c842;color:#111;border:none;border-radius:5px;padding:8px 0;font-family:inherit;font-size:12px;font-weight:600;";
+    expBtn.addEventListener("click",()=>this.exportWBT());
+    expBtnRow.appendChild(expBtn);
+    const expPyBtn = document.createElement("button");
+    expPyBtn.textContent="Export .py";
+    expPyBtn.style.cssText="flex:1;background:#3a8fff;color:#fff;border:none;border-radius:5px;padding:8px 0;font-family:inherit;font-size:12px;font-weight:600;";
+    expPyBtn.addEventListener("click",()=>this.exportPY());
+    expBtnRow.appendChild(expPyBtn);
+    foot.appendChild(expBtnRow);
+    const clrBtn = document.createElement("button");
+    clrBtn.textContent="Clear all";
+    clrBtn.style.cssText="background:transparent;color:#666;border:1px solid #333;border-radius:5px;padding:6px 0;font-family:inherit;font-size:11px;";
+    clrBtn.addEventListener("click",()=>{ this.segments=[]; this.redraw(); this.updateStats(); this.showToast("Cleared"); });
+    foot.appendChild(clrBtn);
+    sb.appendChild(foot);
+
+    /* MAIN */
+    const main = document.createElement("div");
+    main.style.cssText="flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden;";
+
+    const tbar = document.createElement("div");
+    tbar.style.cssText="height:33px;background:#141414;border-bottom:1px solid #222;display:flex;align-items:center;padding:0 10px;gap:10px;font-size:10px;color:#555;flex-shrink:0;";
+    tbar.innerHTML="<span>LMB draw · RMB erase all on cell · Alt+drag pan · scroll zoom · layers supported</span>";
+    this.zoomLbl = document.createElement("span");
+    this.zoomLbl.style.cssText="margin-left:auto;color:#666;";
+    this.zoomLbl.textContent="100%";
+    tbar.appendChild(this.zoomLbl);
+    const rstBtn = document.createElement("button");
+    rstBtn.textContent="fit"; rstBtn.style.cssText="background:none;border:1px solid #333;color:#666;border-radius:4px;padding:2px 8px;font-family:inherit;font-size:10px;";
+    rstBtn.addEventListener("click",()=>{ this.zoom=1; this.pan={x:24,y:24}; this.redraw(); this.zoomLbl.textContent="100%"; });
+    tbar.appendChild(rstBtn); main.appendChild(tbar);
+
+    this.wrap = document.createElement("div");
+    this.wrap.style.cssText="flex:1;position:relative;overflow:hidden;cursor:crosshair;";
+    this.canvas = document.createElement("canvas");
+    this.wrap.appendChild(this.canvas);
+
+    this.emptyEl = document.createElement("div");
+    this.emptyEl.style.cssText="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:#282828;pointer-events:none;";
+    this.emptyEl.innerHTML=`<div style="font-size:32px;margin-bottom:10px">╲ │ ╱</div><div style="font-size:12px;letter-spacing:1px">pick a line type and draw on the grid</div><div style="font-size:10px;margin-top:6px;color:#222">multiple lines per cell · drag to paint</div>`;
+    this.wrap.appendChild(this.emptyEl);
+
+    this.toastEl = document.createElement("div");
+    this.toastEl.style.cssText="position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:#222;border:1px solid #444;color:#ccc;border-radius:8px;padding:7px 16px;font-size:11px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity 0.15s;";
+    this.wrap.appendChild(this.toastEl);
+    main.appendChild(this.wrap);
+
+    const cbar = document.createElement("div");
+    cbar.style.cssText="height:26px;background:#141414;border-top:1px solid #222;display:flex;align-items:center;padding:0 10px;font-size:9px;color:#444;flex-shrink:0;gap:14px;";
+    this.coordEl = document.createElement("span"); this.coordEl.textContent="—";
+    cbar.appendChild(this.coordEl);
+    const leg = document.createElement("span");
+    leg.innerHTML=`<span style="color:#f5c842">■</span> yellow &nbsp;<span style="color:#3a8fff">■</span> blue &nbsp; tape=36mm &nbsp; grid=0.5m`;
+    cbar.appendChild(leg); main.appendChild(cbar);
+
+    app.appendChild(sb); app.appendChild(main);
+    this.sizeCanvas(); this.redraw(); this.bindEvents();
+  }
+
+  setColor(col) {
+    this.selColor=col;
+    document.querySelectorAll("[data-color]").forEach(b=>{
+      b.style.border=`2px solid ${b.dataset.color===col?"#fff":"transparent"}`;
+    });
+    Object.entries(this.btnMap).forEach(([id,{pc}])=>{
+      const npc=makePreview(id,col,60);
+      const ctx=pc.getContext("2d"); ctx.clearRect(0,0,60,60); ctx.drawImage(npc,0,0);
+    });
+  }
+
+  setType(id) {
+    if (this.btnMap[this.selType]) {
+      const {btn,lbl}=this.btnMap[this.selType];
+      btn.style.borderColor="transparent"; btn.style.background="transparent"; lbl.style.color="#555";
+    }
+    const er=document.getElementById("eraseBtn");
+    if(er){er.style.borderColor="#333";er.style.background="transparent";er.style.color="#666";}
+    this.selType=id;
+    if (id==="erase") {
+      if(er){er.style.borderColor="#e55";er.style.background="#1e1010";er.style.color="#e55";}
+    } else if (this.btnMap[id]) {
+      const {btn,lbl}=this.btnMap[id];
+      btn.style.borderColor="#fff"; btn.style.background="#252525"; lbl.style.color="#ddd";
+    }
+  }
+
+  sizeCanvas() {
+    if(!this.wrap||!this.canvas)return;
+    this.canvas.width=this.wrap.clientWidth||600;
+    this.canvas.height=this.wrap.clientHeight||400;
+  }
+
+  getCell(e) {
+    const r=this.canvas.getBoundingClientRect(), cp=CELL*this.zoom;
+    return [Math.floor((e.clientX-r.left-this.pan.x)/cp), Math.floor((e.clientY-r.top-this.pan.y)/cp)];
+  }
+
+  paintCell(e) {
+    const [col,row]=this.getCell(e);
+    if(col<0||col>=COLS||row<0||row>=ROWS)return;
+    if(this.selType==="erase"){
+      for(let i=this.segments.length-1;i>=0;i--){
+        if(this.segments[i].col===col&&this.segments[i].row===row){this.segments.splice(i,1);break;}
+      }
+    } else {
+      const key=`${col},${row},${this.selType},${this.selColor}`;
+      if(!this._stroke)this._stroke=new Set();
+      if(!this._stroke.has(key)){
+        this._stroke.add(key);
+        this.segments.push({col,row,type:this.selType,color:this.selColor});
+      }
+    }
+    this.redraw(); this.updateStats();
+  }
+
+  bindEvents() {
+    const w=this.wrap;
+    w.addEventListener("mousedown",e=>{
+      if(e.button===1||e.altKey){
+        this.panning=true; this.panStart={x:e.clientX-this.pan.x,y:e.clientY-this.pan.y};
+        w.style.cursor="grabbing"; e.preventDefault(); return;
+      }
+      if(e.button===2){
+        const[col,row]=this.getCell(e);
+        this.segments=this.segments.filter(s=>!(s.col===col&&s.row===row));
+        this.redraw(); this.updateStats(); return;
+      }
+      this._stroke=new Set(); this.painting=true; this.paintCell(e);
+    });
+    w.addEventListener("mousemove",e=>{
+      const[col,row]=this.getCell(e);
+      if(col>=0&&col<COLS&&row>=0&&row<ROWS)
+        this.coordEl.textContent=`(${col},${row}) = (${(col*0.5).toFixed(1)}m, ${(row*0.5).toFixed(1)}m)`;
+      if(this.panning&&this.panStart){this.pan={x:e.clientX-this.panStart.x,y:e.clientY-this.panStart.y};this.redraw();return;}
+      if(this.painting)this.paintCell(e);
+    });
+    const up=()=>{this.painting=false;this.panning=false;this._stroke=null;w.style.cursor="crosshair";};
+    w.addEventListener("mouseup",up); w.addEventListener("mouseleave",up);
+    w.addEventListener("wheel",e=>{
+      e.preventDefault();
+      this.zoom=Math.min(6,Math.max(0.2,this.zoom*(e.deltaY<0?1.1:0.91)));
+      this.redraw(); this.zoomLbl.textContent=Math.round(this.zoom*100)+"%";
+    },{passive:false});
+    w.addEventListener("contextmenu",e=>e.preventDefault());
+  }
+
+  redraw() {
+    const canvas=this.canvas; if(!canvas)return;
+    const ctx=canvas.getContext("2d");
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    const cp=CELL*this.zoom;
+    ctx.save(); ctx.translate(this.pan.x,this.pan.y);
+    ctx.fillStyle="#1c1c1c"; ctx.fillRect(0,0,COLS*cp,ROWS*cp);
+    // 0.5m fine grid
+    ctx.strokeStyle="#272727"; ctx.lineWidth=0.5;
+    for(let c=0;c<=COLS;c++){ctx.beginPath();ctx.moveTo(c*cp,0);ctx.lineTo(c*cp,ROWS*cp);ctx.stroke();}
+    for(let r=0;r<=ROWS;r++){ctx.beginPath();ctx.moveTo(0,r*cp);ctx.lineTo(COLS*cp,r*cp);ctx.stroke();}
+    // 1m grid
+    ctx.strokeStyle="#3c3c3c"; ctx.lineWidth=1;
+    for(let c=0;c<=COLS;c+=2){ctx.beginPath();ctx.moveTo(c*cp,0);ctx.lineTo(c*cp,ROWS*cp);ctx.stroke();}
+    for(let r=0;r<=ROWS;r+=2){ctx.beginPath();ctx.moveTo(0,r*cp);ctx.lineTo(COLS*cp,r*cp);ctx.stroke();}
+    // Labels
+    if(this.zoom>0.45){
+      ctx.fillStyle="#3a3a3a"; ctx.font=`${Math.max(8,Math.round(9*this.zoom))}px monospace`;
+      ctx.textAlign="left"; ctx.textBaseline="top";
+      for(let c=0;c<COLS;c+=2)ctx.fillText(`${c/2}m`,c*cp+2,2);
+      ctx.textAlign="right";
+      for(let r=0;r<ROWS;r+=2)ctx.fillText(`${r/2}`,COLS*cp-2,r*cp+2);
+    }
+    this.segments.forEach(s=>drawSeg(ctx,s.type,s.col,s.row,cp,s.color));
+    ctx.restore();
+    this.emptyEl.style.display=this.segments.length===0?"block":"none";
+  }
+
+  updateStats() {
+    const n=this.segments.length, y=this.segments.filter(s=>s.color==="yellow").length, b=n-y;
+    this.statsEl.innerHTML=`<span>${n} segments</span><span style="font-size:9px"><span style="color:#f5c842">${y}Y</span> <span style="color:#3a8fff">${b}B</span></span>`;
+  }
+
+  showToast(msg) {
+    this.toastEl.textContent=msg; this.toastEl.style.opacity="1";
+    clearTimeout(this._tt); this._tt=setTimeout(()=>{this.toastEl.style.opacity="0";},2500);
+  }
+
+  exportPY() {
+    if (!this.segments.length) { this.showToast("Nothing to export"); return; }
+
+    const ARC_N = 12;  // straight-line segments per arc
+    const S = REAL;    // 0.5 m per cell
+
+    // Grid cell corner -> metres (origin top-left, X right, Y down)
+    const mx = c => c * S;
+    const my = r => r * S;
+
+    const yellow = [], blue = [];
+
+    this.segments.forEach(seg => {
+      const { col, row, type, color } = seg;
+      const list = color === "yellow" ? yellow : blue;
+      const x0 = mx(col),     y0 = my(row);
+      const x1 = mx(col + 1), y1 = my(row + 1);
+
+      if (type === "sh_t") {
+        list.push([[x0, y0], [x1, y0]]);
+      } else if (type === "sh_b") {
+        list.push([[x0, y1], [x1, y1]]);
+      } else if (type === "sv_l") {
+        list.push([[x0, y0], [x0, y1]]);
+      } else if (type === "sv_r") {
+        list.push([[x1, y0], [x1, y1]]);
+      } else if (type === "d_nwse") {
+        list.push([[x0, y0], [x1, y1]]);
+      } else if (type === "d_nesw") {
+        list.push([[x1, y0], [x0, y1]]);
+      } else {
+        // Arc segments - mirror drawSeg() canvas arc geometry exactly.
+        // Canvas coords are X-right / Y-down, same as our export system.
+        const isR1 = type.startsWith("a1_");
+        const dir  = type.slice(type.lastIndexOf("_") + 1);
+        const r    = isR1 ? S * 2 : S;
+        let ocx, ocy, a0, a1;
+        if (dir === "ne") { ocx = x0; ocy = y1; a0 = -Math.PI / 2; a1 = 0;            }
+        if (dir === "nw") { ocx = x1; ocy = y1; a0 = -Math.PI;     a1 = -Math.PI / 2; }
+        if (dir === "se") { ocx = x0; ocy = y0; a0 =  Math.PI / 2; a1 = 0;            }
+        if (dir === "sw") { ocx = x1; ocy = y0; a0 =  Math.PI / 2; a1 = Math.PI;      }
+        const da = a1 - a0;
+        for (let i = 0; i < ARC_N; i++) {
+          const ta = a0 + da * i / ARC_N;
+          const tb = a0 + da * (i + 1) / ARC_N;
+          const ax = ocx + r * Math.cos(ta), ay = ocy + r * Math.sin(ta);
+          const bx = ocx + r * Math.cos(tb), by = ocy + r * Math.sin(tb);
+          list.push([[parseFloat(ax.toFixed(6)), parseFloat(ay.toFixed(6))],
+                     [parseFloat(bx.toFixed(6)), parseFloat(by.toFixed(6))]]);
+        }
+      }
+    });
+
+    const fmtSeg = ([p0, p1]) =>
+      `    ((${p0[0].toFixed(4)}, ${p0[1].toFixed(4)}), (${p1[0].toFixed(4)}, ${p1[1].toFixed(4)}))`;
+    const fmtList = (segs, name) => {
+      if (!segs.length) return `${name} = []\n`;
+      return `${name} = [\n    # ((x0, y0), (x1, y1)) in metres\n${segs.map(fmtSeg).join(",\n")}\n]\n`;
+    };
+
+    const allX = this.segments.map(s => [s.col * S, (s.col + 1) * S]).flat();
+    const allY = this.segments.map(s => [s.row * S, (s.row + 1) * S]).flat();
+    const minX = Math.min(...allX), maxX = Math.max(...allX);
+    const minY = Math.min(...allY), maxY = Math.max(...allY);
+    const arenaW = (maxX - minX + S * 2).toFixed(1);
+    const arenaH = (maxY - minY + S * 2).toFixed(1);
+    const spawnX = ((minX + maxX) / 2).toFixed(3);
+    const spawnY = ((minY + maxY) / 2).toFixed(3);
+
+    const py = [
+      `# Auto-generated track definition`,
+      `# Coordinate system: origin top-left, X right, Y down, units = metres`,
+      `# Generated by DRC Track Builder`,
+      ``,
+      `REAL = ${REAL}  # metres per grid cell`,
+      ``,
+      `# Arena dimensions and suggested spawn`,
+      `ARENA_W = ${arenaW}`,
+      `ARENA_H = ${arenaH}`,
+      `SPAWN_X = ${spawnX}`,
+      `SPAWN_Y = ${spawnY}`,
+      ``,
+      fmtList(yellow, "YELLOW_SEGMENTS"),
+      fmtList(blue,   "BLUE_SEGMENTS"),
+    ].join("\n");
+
+    const blob = new Blob([py], { type: "text/plain" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = "track.py"; a.click();
+    URL.revokeObjectURL(url);
+    this.showToast(`Exported track.py — ${yellow.length}Y + ${blue.length}B segs`);
+  }
+
+  exportWBT() {
+    if(!this.segments.length){this.showToast("Nothing to export");return;}
+    const TH=0.005, TZ=TH/2+0.001, TAPE=TAPE_REAL, ARC_N=16;
+    const nodes=[];
+    const fs=this.segments.find(s=>(s.type==="sh_t"||s.type==="sh_b")&&s.color==="yellow");
+    const startCol=fs?fs.col:Math.floor(COLS/2), startRow=fs?fs.row:Math.floor(ROWS/2);
+    const wx=c=>(c-COLS/2)*REAL;
+    const wy=r=>-(r-ROWS/2)*REAL;
+    const col3=color=>color==="yellow"?"1.0 0.78 0.13":"0.17 0.50 1.0";
+    const S=REAL;
+
+    const addBox=(x,y,sx,sy,rot,color,name)=>{
+      const rc=rot?`\n    rotation 0 0 1 ${rot.toFixed(4)}`:"";
+      nodes.push(`  Solid {\n    translation ${x.toFixed(4)} ${y.toFixed(4)} ${TZ.toFixed(4)}${rc}\n    children [ Shape { appearance PBRAppearance { baseColor ${col3(color)} roughness 1 metalness 0 } geometry Box { size ${sx.toFixed(4)} ${sy.toFixed(4)} ${TH.toFixed(4)} } } ]\n    name "${name}"\n  }`);
+    };
+
+    this.segments.forEach((seg,idx)=>{
+      const {col,row,type,color}=seg;
+      const x0=wx(col), y0=wy(row);
+      const x1=wx(col+1), y1=wy(row+1);
+      const xc=(x0+x1)/2, yc=(y0+y1)/2;
+      const nm=`s${idx}`;
+
+      if(type==="sh_t"){
+        addBox(xc, y0 - TAPE/2, S, TAPE, 0, color, nm);
+      } else if(type==="sh_b"){
+        addBox(xc, y1 + TAPE/2, S, TAPE, 0, color, nm);
+      } else if(type==="sv_l"){
+        addBox(x0 + TAPE/2, yc, TAPE, S, 0, color, nm);
+      } else if(type==="sv_r"){
+        addBox(x1 - TAPE/2, yc, TAPE, S, 0, color, nm);
+      } else if(type==="d_nwse"){
+        addBox(xc, yc, TAPE, S*Math.SQRT2, Math.PI/4, color, nm);
+      } else if(type==="d_nesw"){
+        addBox(xc, yc, TAPE, S*Math.SQRT2, -Math.PI/4, color, nm);
+      } else {
+        const isR1=type.startsWith("a1_");
+        const dir=type.slice(type.lastIndexOf("_")+1);
+        const r=isR1?S*2:S;
+        // Map canvas corners to world corners (Y is flipped: canvas T = world larger Y)
+        let ocx,ocy,a0,a1;
+        // Canvas NE: corner at bottom-left (L,B) → world: (x0, y1)  y1<y0 in world
+        if(dir==="ne"){ocx=x0;ocy=y1;a0=Math.PI/2; a1=0;         }
+        if(dir==="nw"){ocx=x1;ocy=y1;a0=Math.PI;   a1=Math.PI/2; }
+        if(dir==="se"){ocx=x0;ocy=y0;a0=0;         a1=-Math.PI/2;}
+        if(dir==="sw"){ocx=x1;ocy=y0;a0=-Math.PI/2;a1=-Math.PI;  }
+        const sweep=Math.abs(a1-a0);
+        for(let i=0;i<ARC_N;i++){
+          const t=a0+(a1-a0)*(i+0.5)/ARC_N;
+          const px=ocx+r*Math.cos(t), py=ocy+r*Math.sin(t);
+          const segLen=r*sweep/ARC_N*1.06;
+          nodes.push(`  Solid {\n    translation ${px.toFixed(4)} ${py.toFixed(4)} ${TZ.toFixed(4)}\n    rotation 0 0 1 ${(t+Math.PI/2).toFixed(4)}\n    children [ Shape { appearance PBRAppearance { baseColor ${col3(color)} roughness 1 metalness 0 } geometry Box { size ${TAPE.toFixed(4)} ${segLen.toFixed(4)} ${TH.toFixed(4)} } } ]\n    name "${nm}_${i}"\n  }`);
+        }
+      }
+    });
+
+    const rx=wx(startCol)+S/2, ry2=wy(startRow)-S/2;
+    const wbt=`#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+
+WorldInfo { title "DRC Track" basicTimeStep 16 coordinateSystem "ENU" }
+Viewpoint { orientation 0 0 1 0 position 0 0 14 follow "kiwi_robot" followType "None" }
+TexturedBackground { texture "empty_office" }
+TexturedBackgroundLight { }
+RectangleArena {
+  floorSize ${COLS*REAL} ${ROWS*REAL}
+  floorAppearance PBRAppearance { baseColor 0.18 0.18 0.18 roughness 0.9 metalness 0 }
+  wallHeight 0.05
+}
+
+${nodes.join("\n")}
+
+Robot {
+  name "kiwi_robot"
+  translation ${rx.toFixed(3)} ${ry2.toFixed(3)} 0.0694759
+  rotation 0 0 1 0
+  children [
+
+    GPS { name "gps" }
+    Gyro { name "gyro" }
+
+    DEF BODY_SHAPE Pose {
+      translation 0 0 0.03
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 0.1 0.5 0.9 roughness 0.4 metalness 0.2 }
+          geometry Cylinder { height 0.12 radius 0.10 subdivision 18 }
+        }
+      ]
+    }
+
+    DEF NOSE Pose {
+      translation 0.10 0 0.06
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 1 0.3 0.1 }
+          geometry Sphere { radius 0.015 }
+        }
+      ]
+    }
+
+    DEF SOLID1 Solid {
+      children [
+        HingeJoint {
+          jointParameters HingeJointParameters { anchor -0.1 0 0 }
+          device [ RotationalMotor { name "wheel0" maxVelocity 40 maxTorque 10 } PositionSensor { name "wheel0_sensor" } ]
+          endPoint Solid {
+            translation -0.138 0 0
+            children [
+              DEF sr1_0 HingeJoint { jointParameters HingeJointParameters { axis 0 1 0 anchor -0.02 0 0.035 } endPoint Solid { translation -0.02 0 0.035 children [ DEF r1 Pose { rotation 1 0 0 1.5708 children [ DEF ROLLER Shape { appearance PBRAppearance { baseColor 0.2 0.2 0.2 roughness 1 metalness 0 } geometry Cylinder { height 0.014 radius 0.008 } } ] } ] name "w0r1" boundingObject USE r1 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr2_0 HingeJoint { jointParameters HingeJointParameters { axis 0 -0.707107 0.707107 anchor -0.02 0.02475 0.02475 } endPoint Solid { translation -0.02 0.02475 0.02475 children [ DEF r2 Pose { rotation 1 0 0 2.27 children [ USE ROLLER ] } ] name "w0r2" boundingObject USE r2 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr3_0 HingeJoint { jointParameters HingeJointParameters { axis 0 0 1 anchor -0.02 0.035 0 } endPoint Solid { translation -0.02 0.035 0 children [ DEF r3 Pose { children [ USE ROLLER ] } ] name "w0r3" boundingObject USE r3 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr4_0 HingeJoint { jointParameters HingeJointParameters { axis 0 0.707107 0.707107 anchor -0.02 0.02475 -0.02475 } endPoint Solid { translation -0.02 0.02475 -0.02475 children [ DEF r4 Pose { rotation 1 0 0 0.76 children [ USE ROLLER ] } ] name "w0r4" boundingObject USE r4 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr5_0 HingeJoint { jointParameters HingeJointParameters { axis 0 1 0 anchor -0.02 0 -0.035 } endPoint Solid { translation -0.02 0 -0.035 children [ DEF r5 Pose { rotation 1 0 0 1.5708 children [ USE ROLLER ] } ] name "w0r5" boundingObject USE r5 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr6_0 HingeJoint { jointParameters HingeJointParameters { axis 0 -0.707107 0.707107 anchor -0.02 -0.02475 -0.02475 } endPoint Solid { translation -0.02 -0.02475 -0.02475 children [ DEF r6 Pose { rotation 1 0 0 2.27 children [ USE ROLLER ] } ] name "w0r6" boundingObject USE r6 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr7_0 HingeJoint { jointParameters HingeJointParameters { axis 0 0 1 anchor -0.02 -0.035 0 } endPoint Solid { translation -0.02 -0.035 0 children [ DEF r7 Pose { children [ USE ROLLER ] } ] name "w0r7" boundingObject USE r7 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr8_0 HingeJoint { jointParameters HingeJointParameters { axis 0 0.707107 0.707107 anchor -0.02 -0.02475 0.02475 } endPoint Solid { translation -0.02 -0.02475 0.02475 children [ DEF r8 Pose { rotation 1 0 0 0.76 children [ USE ROLLER ] } ] name "w0r8" boundingObject USE r8 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF WHEEL_VIS Pose { translation -0.02 0 0 rotation 0 1 0 1.5708 children [ Shape { appearance PBRAppearance { baseColor 0.15 0.15 0.15 roughness 1 metalness 0 } geometry Cylinder { height 0.018 radius 0.035 subdivision 20 } } ] }
+            ]
+            boundingObject Pose { translation -0.02 0 0 rotation 0 1 0 1.5708 children [ Shape { geometry Cylinder { height 0.018 radius 0.035 } } ] }
+            physics Physics { }
+          }
+        }
+      ]
+      name "wheel0_body"
+      boundingObject DEF DUMMY Sphere { radius 0.001 }
+      physics Physics { }
+    }
+
+    DEF SOLID2 Solid {
+      rotation 0 0 1 2.0944
+      children [
+        HingeJoint {
+          jointParameters HingeJointParameters { anchor -0.1 0 0 }
+          device [ RotationalMotor { name "wheel1" maxVelocity 40 maxTorque 10 } PositionSensor { name "wheel1_sensor" } ]
+          endPoint Solid {
+            translation -0.138 0 0
+            children [
+              DEF sr1_1 HingeJoint { jointParameters HingeJointParameters { axis 0 1 0 anchor -0.02 0 0.035 } endPoint Solid { translation -0.02 0 0.035 children [ USE r1 ] name "w1r1" boundingObject USE r1 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr2_1 HingeJoint { jointParameters HingeJointParameters { axis 0 -0.707107 0.707107 anchor -0.02 0.02475 0.02475 } endPoint Solid { translation -0.02 0.02475 0.02475 children [ USE r2 ] name "w1r2" boundingObject USE r2 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr3_1 HingeJoint { jointParameters HingeJointParameters { axis 0 0 1 anchor -0.02 0.035 0 } endPoint Solid { translation -0.02 0.035 0 children [ USE r3 ] name "w1r3" boundingObject USE r3 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr4_1 HingeJoint { jointParameters HingeJointParameters { axis 0 0.707107 0.707107 anchor -0.02 0.02475 -0.02475 } endPoint Solid { translation -0.02 0.02475 -0.02475 children [ USE r4 ] name "w1r4" boundingObject USE r4 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr5_1 HingeJoint { jointParameters HingeJointParameters { axis 0 1 0 anchor -0.02 0 -0.035 } endPoint Solid { translation -0.02 0 -0.035 children [ USE r5 ] name "w1r5" boundingObject USE r5 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr6_1 HingeJoint { jointParameters HingeJointParameters { axis 0 -0.707107 0.707107 anchor -0.02 -0.02475 -0.02475 } endPoint Solid { translation -0.02 -0.02475 -0.02475 children [ USE r6 ] name "w1r6" boundingObject USE r6 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr7_1 HingeJoint { jointParameters HingeJointParameters { axis 0 0 1 anchor -0.02 -0.035 0 } endPoint Solid { translation -0.02 -0.035 0 children [ USE r7 ] name "w1r7" boundingObject USE r7 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr8_1 HingeJoint { jointParameters HingeJointParameters { axis 0 0.707107 0.707107 anchor -0.02 -0.02475 0.02475 } endPoint Solid { translation -0.02 -0.02475 0.02475 children [ USE r8 ] name "w1r8" boundingObject USE r8 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              USE WHEEL_VIS
+            ]
+            boundingObject Pose { translation -0.02 0 0 rotation 0 1 0 1.5708 children [ Shape { geometry Cylinder { height 0.018 radius 0.035 } } ] }
+            physics Physics { }
+          }
+        }
+      ]
+      name "wheel1_body"
+      boundingObject USE DUMMY
+      physics Physics { }
+    }
+
+    DEF SOLID3 Solid {
+      rotation 0 0 1 4.1888
+      children [
+        HingeJoint {
+          jointParameters HingeJointParameters { anchor -0.1 0 0 }
+          device [ RotationalMotor { name "wheel2" maxVelocity 40 maxTorque 10 } PositionSensor { name "wheel2_sensor" } ]
+          endPoint Solid {
+            translation -0.138 0 0
+            children [
+              DEF sr1_2 HingeJoint { jointParameters HingeJointParameters { axis 0 1 0 anchor -0.02 0 0.035 } endPoint Solid { translation -0.02 0 0.035 children [ USE r1 ] name "w2r1" boundingObject USE r1 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr2_2 HingeJoint { jointParameters HingeJointParameters { axis 0 -0.707107 0.707107 anchor -0.02 0.02475 0.02475 } endPoint Solid { translation -0.02 0.02475 0.02475 children [ USE r2 ] name "w2r2" boundingObject USE r2 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr3_2 HingeJoint { jointParameters HingeJointParameters { axis 0 0 1 anchor -0.02 0.035 0 } endPoint Solid { translation -0.02 0.035 0 children [ USE r3 ] name "w2r3" boundingObject USE r3 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr4_2 HingeJoint { jointParameters HingeJointParameters { axis 0 0.707107 0.707107 anchor -0.02 0.02475 -0.02475 } endPoint Solid { translation -0.02 0.02475 -0.02475 children [ USE r4 ] name "w2r4" boundingObject USE r4 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr5_2 HingeJoint { jointParameters HingeJointParameters { axis 0 1 0 anchor -0.02 0 -0.035 } endPoint Solid { translation -0.02 0 -0.035 children [ USE r5 ] name "w2r5" boundingObject USE r5 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr6_2 HingeJoint { jointParameters HingeJointParameters { axis 0 -0.707107 0.707107 anchor -0.02 -0.02475 -0.02475 } endPoint Solid { translation -0.02 -0.02475 -0.02475 children [ USE r6 ] name "w2r6" boundingObject USE r6 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr7_2 HingeJoint { jointParameters HingeJointParameters { axis 0 0 1 anchor -0.02 -0.035 0 } endPoint Solid { translation -0.02 -0.035 0 children [ USE r7 ] name "w2r7" boundingObject USE r7 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              DEF sr8_2 HingeJoint { jointParameters HingeJointParameters { axis 0 0.707107 0.707107 anchor -0.02 -0.02475 0.02475 } endPoint Solid { translation -0.02 -0.02475 0.02475 children [ USE r8 ] name "w2r8" boundingObject USE r8 physics Physics { density -1 mass 0.05 damping Damping { linear 0.5 angular 0.5 } } } }
+              USE WHEEL_VIS
+            ]
+            boundingObject Pose { translation -0.02 0 0 rotation 0 1 0 1.5708 children [ Shape { geometry Cylinder { height 0.018 radius 0.035 } } ] }
+            physics Physics { }
+          }
+        }
+      ]
+      name "wheel2_body"
+      boundingObject USE DUMMY
+      physics Physics { }
+    }
+
+  ]
+  boundingObject USE BODY_SHAPE
+  physics Physics {
+    density -1
+    mass 1.2
+    centerOfMass [ 0 0 0 ]
+    damping Damping {
+      linear 0.9
+      angular 0.99
+    }
+  }
+  controller "kiwi_controller"
+}
+`;
+    const blob=new Blob([wbt],{type:"text/plain"});
+    const url=URL.createObjectURL(blob); const a=document.createElement("a");
+    a.href=url; a.download="drc_track.wbt"; a.click(); URL.revokeObjectURL(url);
+    this.showToast(`Exported — ${nodes.length} Solid nodes`);
+  }
+}
+
+new App();
+</script>
+</body>
+</html>

@@ -1,0 +1,418 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+
+WorldInfo { title "DRC Track" basicTimeStep 16 coordinateSystem "ENU" }
+Viewpoint { orientation 0 0 1 0 position 0 0 14 follow "kiwi_robot" followType "None" }
+TexturedBackground { texture "empty_office" }
+TexturedBackgroundLight { }
+RectangleArena {
+  floorSize 12 10
+  floorAppearance PBRAppearance { baseColor 0.18 0.18 0.18 roughness 0.9 metalness 0 }
+  wallHeight 0.05
+}
+
+  Solid {
+    translation -4.7500 4.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s0"
+  }
+  Solid {
+    translation -4.2500 4.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s1"
+  }
+  Solid {
+    translation -3.7500 4.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s2"
+  }
+  Solid {
+    translation -3.2500 4.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s3"
+  }
+  Solid {
+    translation -2.7500 4.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s4"
+  }
+  Solid {
+    translation -2.2500 4.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s5"
+  }
+  Solid {
+    translation -1.7500 4.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s6"
+  }
+  Solid {
+    translation -1.2500 4.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s7"
+  }
+  Solid {
+    translation -0.7500 4.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s8"
+  }
+  Solid {
+    translation -0.2500 4.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s9"
+  }
+  Solid {
+    translation 0.2500 4.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s10"
+  }
+  Solid {
+    translation 0.7500 4.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s11"
+  }
+  Solid {
+    translation -4.7500 4.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s12"
+  }
+  Solid {
+    translation -4.2500 4.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s13"
+  }
+  Solid {
+    translation -3.7500 4.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s14"
+  }
+  Solid {
+    translation -3.2500 4.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s15"
+  }
+  Solid {
+    translation -2.7500 4.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s16"
+  }
+  Solid {
+    translation -2.2500 4.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s17"
+  }
+  Solid {
+    translation -1.7500 4.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s18"
+  }
+  Solid {
+    translation -1.2500 4.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s19"
+  }
+  Solid {
+    translation -0.7500 4.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s20"
+  }
+  Solid {
+    translation -0.2500 4.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s21"
+  }
+  Solid {
+    translation 0.2500 4.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s22"
+  }
+  Solid {
+    translation 0.7500 4.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s23"
+  }
+  Solid {
+    translation -4.7500 2.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s24"
+  }
+  Solid {
+    translation -4.2500 2.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s25"
+  }
+  Solid {
+    translation -3.7500 2.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s26"
+  }
+  Solid {
+    translation -3.2500 2.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s27"
+  }
+  Solid {
+    translation -2.7500 2.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s28"
+  }
+  Solid {
+    translation -2.2500 2.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s29"
+  }
+  Solid {
+    translation -1.7500 2.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s30"
+  }
+  Solid {
+    translation -1.2500 2.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s31"
+  }
+  Solid {
+    translation -0.7500 2.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s32"
+  }
+  Solid {
+    translation -0.2500 2.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s33"
+  }
+  Solid {
+    translation 0.2500 2.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s34"
+  }
+  Solid {
+    translation 0.7500 2.9820 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s35"
+  }
+  Solid {
+    translation -4.7500 2.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s36"
+  }
+  Solid {
+    translation -4.2500 2.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s37"
+  }
+  Solid {
+    translation -3.7500 2.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s38"
+  }
+  Solid {
+    translation -3.2500 2.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s39"
+  }
+  Solid {
+    translation -2.7500 2.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s40"
+  }
+  Solid {
+    translation -2.2500 2.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s41"
+  }
+  Solid {
+    translation -1.7500 2.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s42"
+  }
+  Solid {
+    translation -1.2500 2.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s43"
+  }
+  Solid {
+    translation -0.7500 2.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s44"
+  }
+  Solid {
+    translation -0.2500 2.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s45"
+  }
+  Solid {
+    translation 0.2500 2.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s46"
+  }
+  Solid {
+    translation 0.7500 2.0180 0.0035
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.5000 0.0360 0.0050 } } ]
+    name "s47"
+  }
+  Solid {
+    translation -4.7500 -1.2500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s48"
+  }
+  Solid {
+    translation -4.2500 -1.2500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s49"
+  }
+  Solid {
+    translation -3.7500 -1.2500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s50"
+  }
+  Solid {
+    translation -3.2500 -0.7500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s51"
+  }
+  Solid {
+    translation -2.2500 -0.2500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s52"
+  }
+  Solid {
+    translation -1.2500 0.2500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s53"
+  }
+  Solid {
+    translation -0.7500 0.2500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s54"
+  }
+  Solid {
+    translation -0.2500 0.7500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s55"
+  }
+  Solid {
+    translation 0.2500 0.7500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s56"
+  }
+  Solid {
+    translation 0.7500 0.7500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s57"
+  }
+  Solid {
+    translation 0.7500 1.2500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s58"
+  }
+  Solid {
+    translation 1.2500 1.2500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s59"
+  }
+  Solid {
+    translation 1.7500 1.2500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s60"
+  }
+  Solid {
+    translation 2.2500 1.7500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s61"
+  }
+  Solid {
+    translation 2.7500 1.7500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 0.17 0.50 1.0 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s62"
+  }
+  Solid {
+    translation -2.7500 -2.7500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s63"
+  }
+  Solid {
+    translation -1.7500 -2.7500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s64"
+  }
+  Solid {
+    translation -0.2500 -2.2500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s65"
+  }
+  Solid {
+    translation 1.2500 -1.2500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s66"
+  }
+  Solid {
+    translation 2.7500 -0.7500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s67"
+  }
+  Solid {
+    translation 3.7500 -0.2500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s68"
+  }
+  Solid {
+    translation 4.2500 -0.2500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s69"
+  }
+  Solid {
+    translation 4.7500 0.2500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s70"
+  }
+  Solid {
+    translation 5.2500 0.2500 0.0035
+    rotation 0 0 1 -0.7854
+    children [ Shape { appearance PBRAppearance { baseColor 1.0 0.78 0.13 roughness 1 metalness 0 } geometry Box { size 0.0360 0.7071 0.0050 } } ]
+    name "s71"
+  }
+
+Robot {
+  name "kiwi_robot"
+  translation -4.750 4.750 0.025
+  rotation 0 0 1 0
+  children [
+    DEF BODY Shape { appearance PBRAppearance { baseColor 0.1 0.5 0.9 roughness 0.4 metalness 0.2 } geometry Cylinder { radius 0.10 height 0.06 } }
+    Transform { translation 0 0.09 0.02 children [ Shape { appearance PBRAppearance { baseColor 1 0.3 0.1 } geometry Sphere { radius 0.02 } } ] }
+    DEF W0 HingeJoint { jointParameters HingeJointParameters { axis 0 1 0 anchor 0 0.09 0 } device [ RotationalMotor { name "wheel0" maxVelocity 20 maxTorque 10 } PositionSensor { name "wheel0_sensor" } ] endPoint Solid { translation 0 0.09 0 rotation 1 0 0 1.5708 children [ Shape { appearance PBRAppearance { baseColor 0.15 0.15 0.15 } geometry Cylinder { radius 0.025 height 0.018 } } ] name "wheel0_solid" boundingObject Cylinder { radius 0.025 height 0.018 } physics Physics { density 200 } } }
+    DEF W1 HingeJoint { jointParameters HingeJointParameters { axis -0.866025 -0.5 0 anchor -0.07794 -0.045 0 } device [ RotationalMotor { name "wheel1" maxVelocity 20 maxTorque 10 } PositionSensor { name "wheel1_sensor" } ] endPoint Solid { translation -0.07794 -0.045 0 rotation 0.5 -0.866025 0 1.5708 children [ Shape { appearance PBRAppearance { baseColor 0.15 0.15 0.15 } geometry Cylinder { radius 0.025 height 0.018 } } ] name "wheel1_solid" boundingObject Cylinder { radius 0.025 height 0.018 } physics Physics { density 200 } } }
+    DEF W2 HingeJoint { jointParameters HingeJointParameters { axis 0.866025 -0.5 0 anchor 0.07794 -0.045 0 } device [ RotationalMotor { name "wheel2" maxVelocity 20 maxTorque 10 } PositionSensor { name "wheel2_sensor" } ] endPoint Solid { translation 0.07794 -0.045 0 rotation 0.5 0.866025 0 1.5708 children [ Shape { appearance PBRAppearance { baseColor 0.15 0.15 0.15 } geometry Cylinder { radius 0.025 height 0.018 } } ] name "wheel2_solid" boundingObject Cylinder { radius 0.025 height 0.018 } physics Physics { density 200 } } }
+    GPS { name "gps" type "satellite" }
+    Gyro { name "gyro" }
+  ]
+  boundingObject USE BODY
+  physics Physics { density -1 mass 1.2 centerOfMass [ 0 0 0 ] }
+  controller "kiwi_controller"
+}
