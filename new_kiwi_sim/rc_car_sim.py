@@ -35,7 +35,7 @@ ROBOT_RADIUS_M = 0.090        # body radius for drawing (m)
 CAM_ARRAY_R_M  = 0.080        # hex camera array radius (m)
 CAM_HFOV_DEG   = 63.0         # per-camera horizontal FOV
 CAM_NEAR_M     = 0.242        # near sensing distance (m)
-CAM_FAR_M      = 0.750        # far sensing distance / IPM cap (m)
+CAM_FAR_M      = 0.600        # far sensing distance / IPM cap (m)
 NUM_CAMS       = 6
 
 TAPE_W_M       = 0.036        # tape width (m)
@@ -53,6 +53,7 @@ C_NOSE     = (255,  75,  75)
 C_WEDGE    = ( 55,  55,  88)
 C_WEDGE_BD = ( 90,  90, 140)
 C_CAM_DOT  = (160, 160, 255)
+C_GREEN    = (  0, 224,  96)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -199,36 +200,35 @@ def map_hairpin():
 # TRACK FILE LOADING
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _segs_flip_y(segs, arena_h):
-    """Flip Y from track-builder Y-down to simulator Y-up."""
-    return [((x0, arena_h - y0), (x1, arena_h - y1))
-            for (x0, y0), (x1, y1) in segs]
-
 
 def load_map_file(path):
     """
     Load a track.py exported by the DRC Track Builder.
-    Coordinates are flipped from Y-down to Y-up to match the simulator.
+    Coordinates are Y-down (origin top-left) matching the builder directly —
+    no Y-flip needed. The sim viewport handles Y-down rendering.
     """
     spec   = importlib.util.spec_from_file_location("_track", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    aw      = float(getattr(module, 'ARENA_W', 12.0))
-    ah      = float(getattr(module, 'ARENA_H', 10.0))
-    sx      = float(getattr(module, 'SPAWN_X', aw / 2))
-    sy      = ah - float(getattr(module, 'SPAWN_Y', ah / 2))
+    aw = float(getattr(module, 'ARENA_W', 12.0))
+    ah = float(getattr(module, 'ARENA_H', 10.0))
+    sx = float(getattr(module, 'SPAWN_X', aw / 2))
+    sy = float(getattr(module, 'SPAWN_Y', ah / 2))
 
-    def normalise(segs):
+    def norm(segs):
         return [((float(s[0][0]), float(s[0][1])),
                  (float(s[1][0]), float(s[1][1]))) for s in segs]
 
-    outer = _segs_flip_y(normalise(getattr(module, 'YELLOW_SEGMENTS', [])), ah)
-    inner = _segs_flip_y(normalise(getattr(module, 'BLUE_SEGMENTS',   [])), ah)
+    outer = norm(getattr(module, 'YELLOW_SEGMENTS', []))
+    inner = norm(getattr(module, 'BLUE_SEGMENTS',   []))
+    green = norm(getattr(module, 'GREEN_SEGMENTS',  []))
 
-    m2px    = TOP_PX / aw
+    # Scale so the track fills the view width; clamp to a readable min
+    m2px    = max(20.0, TOP_PX / aw)
     tape_px = max(2, int(TAPE_W_M * m2px))
-    return dict(outer=outer, inner=inner, spawn=(sx, sy),
+    return dict(outer=outer, inner=inner, green=green,
+                spawn=(sx, sy),
                 arena_w=aw, arena_h=ah, m2px=m2px,
                 tape_px=tape_px, name=os.path.basename(path))
 
@@ -241,11 +241,28 @@ def pick_track_file():
     """
     Open a native file-chooser dialog starting in the script's own folder,
     filtered to .py files.  Returns the chosen path or None if cancelled.
-    One Tk() instance, created and destroyed entirely within this function.
     """
+    import subprocess, platform
     script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # On macOS, use osascript to bring Python to the front BEFORE tkinter opens.
+    # This is the only reliable way to get the dialog above other apps.
+    if platform.system() == "Darwin":
+        try:
+            subprocess.run(
+                ["osascript", "-e",
+                 'tell application "System Events" to set frontmost of '
+                 '(first process whose unix id is {}) to true'.format(os.getpid())],
+                check=False, capture_output=True, timeout=2
+            )
+        except Exception:
+            pass
+
     root = tk.Tk()
-    root.withdraw()   # keep the root window hidden — only the dialog shows
+    root.withdraw()
+    root.lift()
+    root.focus_force()
+    root.attributes('-topmost', True)
     path = filedialog.askopenfilename(
         title="Select track file",
         initialdir=script_dir,
@@ -260,9 +277,9 @@ def pick_track_file():
 # COORDINATE UTILITIES
 # ─────────────────────────────────────────────────────────────────────────────
 
-def w2s(x_m, y_m, m2px, arena_h):
-    """World metres → top-down screen pixels (Y flipped)."""
-    return int(x_m * m2px), int((arena_h - y_m) * m2px)
+def w2s(x_m, y_m, m2px, pan_x, pan_y):
+    """World metres (Y-down) → top-down screen pixels with pan offset."""
+    return int(x_m * m2px - pan_x), int(y_m * m2px - pan_y)
 
 
 # Camera IPM view: centred on robot, fixed scale
@@ -270,9 +287,9 @@ CAM_HALF_M = CAM_FAR_M + 0.12           # half-width of IPM view in metres
 CAM_SCALE  = (CAM_WIN_SIZE / 2) / CAM_HALF_M   # px / m
 
 def r2c(dx_m, dy_m):
-    """Robot-relative world offset (m) → IPM screen pixel."""
+    """Robot-relative world offset (m) → IPM screen pixel (Y-down world)."""
     return (int(CAM_WIN_SIZE / 2 + dx_m * CAM_SCALE),
-            int(CAM_WIN_SIZE / 2 - dy_m * CAM_SCALE))
+            int(CAM_WIN_SIZE / 2 + dy_m * CAM_SCALE))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -317,27 +334,30 @@ def render_camera_view(surface, rx, ry, map_data):
             pygame.draw.polygon(surface, C_WEDGE, pts)
             pygame.draw.polygon(surface, C_WEDGE_BD, pts, 1)
 
-    # Tape lines — clip each world segment to each camera's wedge
-    layers = [(map_data['outer'], C_YELLOW), (map_data['inner'], C_BLUE)]
-    for segs, colour in layers:
+    # Tape lines — yellow and blue first across ALL cameras, then green on top.
+    # Green must be a completely separate pass AFTER all blue is done, otherwise
+    # a later camera's blue wedge can overdraw an earlier camera's green pixels.
+    tape_px_green = tape_px + 4   # thick enough to cover crossing tape
+
+    def draw_layer(segs, colour, lpx):
         for (p1, p2) in segs:
             for i in range(NUM_CAMS):
                 cam_dir = math.radians(i * 60)
                 fx = rx + CAM_ARRAY_R_M * math.cos(cam_dir)
                 fy = ry + CAM_ARRAY_R_M * math.sin(cam_dir)
-
-                # Wedge polygon in WORLD coordinates (clip happens in world space)
-                wpoly = wedge_poly(fx, fy, cam_dir, half_fov,
-                                   CAM_NEAR_M, CAM_FAR_M)
-
+                wpoly = wedge_poly(fx, fy, cam_dir, half_fov, CAM_NEAR_M, CAM_FAR_M)
                 result = clip_seg_to_convex_poly(p1, p2, wpoly)
                 if result is None:
                     continue
                 q1, q2 = result
-                # Project clipped world points into robot-centred IPM screen
                 sp1 = r2c(q1[0] - rx, q1[1] - ry)
                 sp2 = r2c(q2[0] - rx, q2[1] - ry)
-                pygame.draw.line(surface, colour, sp1, sp2, tape_px)
+                pygame.draw.line(surface, colour, sp1, sp2, lpx)
+
+    draw_layer(map_data['outer'],        C_YELLOW, tape_px)
+    draw_layer(map_data['inner'],        C_BLUE,   tape_px)
+    # Green drawn in its own complete pass — guaranteed on top of everything
+    draw_layer(map_data.get('green',[]), C_GREEN,  tape_px_green)
 
     # Robot body
     centre = (CAM_WIN_SIZE // 2, CAM_WIN_SIZE // 2)
@@ -364,32 +384,27 @@ def render_camera_view(surface, rx, ry, map_data):
 
 def render_topdown(surface, rx, ry, map_data, font):
     m2px    = map_data['m2px']
-    ah      = map_data['arena_h']
     tape_px = map_data['tape_px']
-    S = lambda x, y: w2s(x, y, m2px, ah)
+
+    # Pan so the robot is centred in the view
+    pan_x = int(rx * m2px - TOP_PX / 2)
+    pan_y = int(ry * m2px - TOP_PY / 2)
+
+    S = lambda x, y: w2s(x, y, m2px, pan_x, pan_y)
 
     surface.fill(C_BG)
 
-    # Grid (0.5 m spacing)
+    # Grid (0.5 m spacing) — draw only visible strips
     step = max(1, int(0.5 * m2px))
-    for ix in range(0, TOP_PX + step, step):
+    # offset grids to align with world origin
+    ox = (-pan_x) % step
+    oy = (-pan_y) % step
+    for ix in range(ox, TOP_PX + step, step):
         pygame.draw.line(surface, C_GRID, (ix, 0), (ix, TOP_PY))
-    for iy in range(0, TOP_PY + step, step):
+    for iy in range(oy, TOP_PY + step, step):
         pygame.draw.line(surface, C_GRID, (0, iy), (TOP_PX, iy))
 
-    # Track floor: draw outer filled, inner cut out with bg colour
-    def segs_to_screen_poly(segs):
-        if not segs: return []
-        return [S(*segs[0][0])] + [S(*seg[1]) for seg in segs]
-
-    outer_poly = segs_to_screen_poly(map_data['outer'])
-    inner_poly = segs_to_screen_poly(map_data['inner'])
-    if len(outer_poly) >= 3:
-        pygame.draw.polygon(surface, C_FLOOR, outer_poly)
-    if len(inner_poly) >= 3:
-        pygame.draw.polygon(surface, C_BG, inner_poly)
-
-    # Tape
+    # Tape — yellow outer, blue inner (green drawn AFTER cones so it's never dimmed)
     for seg in map_data['outer']:
         pygame.draw.line(surface, C_YELLOW, S(*seg[0]), S(*seg[1]), tape_px)
     for seg in map_data['inner']:
@@ -414,13 +429,17 @@ def render_topdown(surface, rx, ry, map_data, font):
             pygame.draw.polygon(alpha_surf, (80, 80, 130, 28), pts)
     surface.blit(alpha_surf, (0, 0))
 
+    # Green S/F line — drawn after cones and after all other tape so it's always on top
+    for seg in map_data.get('green', []):
+        pygame.draw.line(surface, C_GREEN, S(*seg[0]), S(*seg[1]), tape_px + 4)
+
     # Robot body
     rpx, rpy = S(rx, ry)
     r_px = max(4, int(ROBOT_RADIUS_M * m2px))
     pygame.draw.circle(surface, C_ROB_FILL, (rpx, rpy), r_px)
     pygame.draw.circle(surface, C_ROB_RING, (rpx, rpy), r_px, 2)
 
-    # Nose (+X world = right)
+    # Nose (+X world = right, +Y world = down in Y-down coords)
     nose_x = rpx + r_px + 7
     pygame.draw.line(surface, C_NOSE, (rpx, rpy), (nose_x, rpy), 3)
     pygame.draw.circle(surface, C_NOSE, (nose_x, rpy), 4)
@@ -436,7 +455,7 @@ def render_topdown(surface, rx, ry, map_data, font):
     hud = [
         f"Track: {map_data['name']}",
         f"X: {rx:.3f} m    Y: {ry:.3f} m",
-        "WASD = translate    ESC = quit",
+        "WASD = translate    E = reset    ESC = quit",
     ]
     for i, line in enumerate(hud):
         surface.blit(font.render(line, True, (155, 155, 165)), (8, 8 + i * 16))
@@ -472,8 +491,8 @@ def get_motion_command(robot_state, camera_view_data):
     vx, vy = 0.0, 0.0
     if keys[pygame.K_d]: vx += ROBOT_SPEED
     if keys[pygame.K_a]: vx -= ROBOT_SPEED
-    if keys[pygame.K_w]: vy += ROBOT_SPEED
-    if keys[pygame.K_s]: vy -= ROBOT_SPEED
+    if keys[pygame.K_w]: vy -= ROBOT_SPEED   # Y-down: W = up screen = smaller Y
+    if keys[pygame.K_s]: vy += ROBOT_SPEED   # Y-down: S = down screen = larger Y
     mag = math.hypot(vx, vy)
     if mag > ROBOT_SPEED:
         vx *= ROBOT_SPEED / mag
@@ -531,6 +550,8 @@ def main():
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     pygame.quit(); sys.exit()
+                if event.key == pygame.K_e:
+                    rx, ry = map_data['spawn']
 
         # Camera IPM (must happen before motion command)
         cam_data = render_camera_view(cam_surf, rx, ry, map_data)
@@ -539,8 +560,8 @@ def main():
         vx, vy = get_motion_command({'x': rx, 'y': ry}, cam_data)
 
         # Integrate position
-        rx = max(ROBOT_RADIUS_M, min(map_data['arena_w'] - ROBOT_RADIUS_M, rx + vx * dt))
-        ry = max(ROBOT_RADIUS_M, min(map_data['arena_h'] - ROBOT_RADIUS_M, ry + vy * dt))
+        rx = max(0.0, rx + vx * dt)
+        ry = max(0.0, ry + vy * dt)
 
         # Top-down render
         render_topdown(top_surf, rx, ry, map_data, font)
