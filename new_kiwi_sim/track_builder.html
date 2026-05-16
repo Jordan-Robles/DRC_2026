@@ -53,8 +53,6 @@ const SEGS = [
   {id:"hc_w",   label:"½ circle W",  cat:"Half Circle"},
   {id:"sf_h",   label:"S/F horiz",   cat:"Start/Finish"},
   {id:"sf_v",   label:"S/F vert",    cat:"Start/Finish"},
-  {id:"sf_h2",  label:"S/F horiz 1m", cat:"Start/Finish"},
-  {id:"sf_v2",  label:"S/F vert 1m",  cat:"Start/Finish"},
 ];
 
 // Draw a segment. All coords relative to canvas origin (already translated).
@@ -125,46 +123,25 @@ function drawSeg(ctx, id, col, row, cp, color) {
     if (dir === "w") { ocx=L+ins;   ocy=(T+B)/2; a0=-Math.PI/2;  a1=Math.PI/2;  ccw=false; }
     ctx.arc(ocx, ocy, hr, a0, a1, ccw);
     ctx.stroke();
-  } else if (id === "sf_h" || id === "sf_v" || id === "sf_h2" || id === "sf_v2") {
-    // Start/finish lines — always green.
-    // sf_h:  0.5m horizontal (single cell width)
-    // sf_h2: 1.0m horizontal (spans from this cell left-edge to 2 cells right = 2×cp wide)
-    // sf_v:  0.5m vertical   (single cell height)
-    // sf_v2: 1.0m vertical   (spans 2 cells tall from this cell top-edge)
+  } else if (id === "sf_h" || id === "sf_v") {
+    // Start/finish line — always green, full-cell line with end ticks and spawn dot.
     ctx.strokeStyle = COLORS.green;
     ctx.lineWidth   = tw;
     ctx.lineCap     = "butt";
+    const cx2 = (L+R)/2, cy2 = (T+B)/2;
     if (id === "sf_h") {
-      const cy2 = (T+B)/2;
       ctx.beginPath(); ctx.moveTo(L, cy2); ctx.lineTo(R, cy2); ctx.stroke();
       ctx.lineWidth = tw*0.5;
       ctx.beginPath(); ctx.moveTo(L, cy2-tw); ctx.lineTo(L, cy2+tw); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(R, cy2-tw); ctx.lineTo(R, cy2+tw); ctx.stroke();
-      ctx.fillStyle=COLORS.green; ctx.beginPath(); ctx.arc((L+R)/2,cy2,tw*0.8,0,Math.PI*2); ctx.fill();
-    } else if (id === "sf_h2") {
-      // Horizontal 1m: line runs from L to L+2*cp, centred vertically in this cell
-      const cy2 = (T+B)/2, x1 = L + cp*2;
-      ctx.beginPath(); ctx.moveTo(L, cy2); ctx.lineTo(x1, cy2); ctx.stroke();
-      ctx.lineWidth = tw*0.5;
-      ctx.beginPath(); ctx.moveTo(L,  cy2-tw); ctx.lineTo(L,  cy2+tw); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(x1, cy2-tw); ctx.lineTo(x1, cy2+tw); ctx.stroke();
-      ctx.fillStyle=COLORS.green; ctx.beginPath(); ctx.arc((L+x1)/2,cy2,tw*0.8,0,Math.PI*2); ctx.fill();
-    } else if (id === "sf_v") {
-      const cx2 = (L+R)/2;
+    } else {
       ctx.beginPath(); ctx.moveTo(cx2, T); ctx.lineTo(cx2, B); ctx.stroke();
       ctx.lineWidth = tw*0.5;
       ctx.beginPath(); ctx.moveTo(cx2-tw, T); ctx.lineTo(cx2+tw, T); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(cx2-tw, B); ctx.lineTo(cx2+tw, B); ctx.stroke();
-      ctx.fillStyle=COLORS.green; ctx.beginPath(); ctx.arc(cx2,(T+B)/2,tw*0.8,0,Math.PI*2); ctx.fill();
-    } else { // sf_v2
-      // Vertical 1m: line runs from T to T+2*cp, centred horizontally in this cell
-      const cx2 = (L+R)/2, y1 = T + cp*2;
-      ctx.beginPath(); ctx.moveTo(cx2, T); ctx.lineTo(cx2, y1); ctx.stroke();
-      ctx.lineWidth = tw*0.5;
-      ctx.beginPath(); ctx.moveTo(cx2-tw, T);  ctx.lineTo(cx2+tw, T);  ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cx2-tw, y1); ctx.lineTo(cx2+tw, y1); ctx.stroke();
-      ctx.fillStyle=COLORS.green; ctx.beginPath(); ctx.arc(cx2,(T+y1)/2,tw*0.8,0,Math.PI*2); ctx.fill();
     }
+    ctx.fillStyle=COLORS.green;
+    ctx.beginPath(); ctx.arc(cx2, cy2, tw*0.8, 0, Math.PI*2); ctx.fill();
   } else {
     // Quarter-arc corners (a05_* and a1_*)
     // The arc centreline is inset by ins from the cell boundary so the stroke
@@ -582,7 +559,7 @@ class App {
             "hc_n","hc_s","hc_e","hc_w",
             "a05_ne","a05_nw","a05_se","a05_sw",
             "a1_ne","a1_nw","a1_se","a1_sw",
-            "sf_h","sf_v","sf_h2","sf_v2",
+            "sf_h","sf_v",
           ]);
           return segs.filter(s =>
             typeof s.col==="number" && typeof s.row==="number" &&
@@ -704,14 +681,8 @@ class App {
         }
       } else if (type === "sf_h") {
         list.push([[x0, (y0+y1)/2], [x1, (y0+y1)/2]]);
-      } else if (type === "sf_h2") {
-        // 1m horizontal — extends 2 cells from anchor column
-        list.push([[x0, (y0+y1)/2], [x0 + S*2, (y0+y1)/2]]);
       } else if (type === "sf_v") {
         list.push([[(x0+x1)/2, y0], [(x0+x1)/2, y1]]);
-      } else if (type === "sf_v2") {
-        // 1m vertical — extends 2 cells from anchor row
-        list.push([[(x0+x1)/2, y0], [(x0+x1)/2, y0 + S*2]]);
       } else {
         // Quarter-arc corners: centreline at radius r − ins
         const isR1 = type.startsWith("a1_");
@@ -759,8 +730,8 @@ class App {
       if (!type.startsWith("sf_")) return;
       const x0 = col * S, y0 = row * S, x1 = (col+1)*S, y1 = (row+1)*S;
       const cx = (x0+x1)/2, cy = (y0+y1)/2;
-      if (type === "sf_h" || type === "sf_h2") green.push([[x0, cy], [x1, cy]]);
-      else                                      green.push([[cx, y0], [cx, y1]]);
+      if (type === "sf_h") green.push([[x0, cy], [x1, cy]]);
+      else         green.push([[cx, y0], [cx, y1]]);
     });
 
     const py = [

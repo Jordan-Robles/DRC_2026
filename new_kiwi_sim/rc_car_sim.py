@@ -337,7 +337,7 @@ def render_camera_view(surface, rx, ry, map_data):
     # Tape lines — yellow and blue first across ALL cameras, then green on top.
     # Green must be a completely separate pass AFTER all blue is done, otherwise
     # a later camera's blue wedge can overdraw an earlier camera's green pixels.
-    tape_px_green = tape_px + 4   # thick enough to cover crossing tape
+    tape_px_green = tape_px
 
     def draw_layer(segs, colour, lpx):
         for (p1, p2) in segs:
@@ -382,7 +382,7 @@ def render_camera_view(surface, rx, ry, map_data):
 # TOP-DOWN ARENA RENDERING
 # ─────────────────────────────────────────────────────────────────────────────
 
-def render_topdown(surface, rx, ry, map_data, font):
+def render_topdown(surface, rx, ry, heading, map_data, font):
     m2px    = map_data['m2px']
     tape_px = map_data['tape_px']
 
@@ -431,7 +431,7 @@ def render_topdown(surface, rx, ry, map_data, font):
 
     # Green S/F line — drawn after cones and after all other tape so it's always on top
     for seg in map_data.get('green', []):
-        pygame.draw.line(surface, C_GREEN, S(*seg[0]), S(*seg[1]), tape_px + 4)
+        pygame.draw.line(surface, C_GREEN, S(*seg[0]), S(*seg[1]), tape_px)
 
     # Robot body
     rpx, rpy = S(rx, ry)
@@ -439,10 +439,12 @@ def render_topdown(surface, rx, ry, map_data, font):
     pygame.draw.circle(surface, C_ROB_FILL, (rpx, rpy), r_px)
     pygame.draw.circle(surface, C_ROB_RING, (rpx, rpy), r_px, 2)
 
-    # Nose (+X world = right, +Y world = down in Y-down coords)
-    nose_x = rpx + r_px + 7
-    pygame.draw.line(surface, C_NOSE, (rpx, rpy), (nose_x, rpy), 3)
-    pygame.draw.circle(surface, C_NOSE, (nose_x, rpy), 4)
+    # Nose — points in heading direction (Shift+WASD to rotate)
+    nose_dx = int(math.cos(heading) * (r_px + 7))
+    nose_dy = int(math.sin(heading) * (r_px + 7))
+    nose_tip = (rpx + nose_dx, rpy + nose_dy)
+    pygame.draw.line(surface, C_NOSE, (rpx, rpy), nose_tip, 3)
+    pygame.draw.circle(surface, C_NOSE, nose_tip, 4)
 
     # Camera face dots
     for i in range(NUM_CAMS):
@@ -452,10 +454,12 @@ def render_topdown(surface, rx, ry, map_data, font):
         pygame.draw.circle(surface, C_CAM_DOT, S(cx, cy), 3)
 
     # HUD
+    heading_name = {0.0:"East", math.pi/2:"South", math.pi:"West",
+                    3*math.pi/2:"North"}.get(round(heading,4), f"{math.degrees(heading):.0f}°")
     hud = [
         f"Track: {map_data['name']}",
-        f"X: {rx:.3f} m    Y: {ry:.3f} m",
-        "WASD = translate    E = reset    ESC = quit",
+        f"X: {rx:.3f} m    Y: {ry:.3f} m    Heading: {heading_name}",
+        "WASD = move    Shift+WASD = turn    E = reset    Q = auto/teleop    ESC = quit",
     ]
     for i, line in enumerate(hud):
         surface.blit(font.render(line, True, (155, 155, 165)), (8, 8 + i * 16))
@@ -489,10 +493,11 @@ def get_motion_command(robot_state, camera_view_data):
     """
     keys = pygame.key.get_pressed()
     vx, vy = 0.0, 0.0
-    if keys[pygame.K_d]: vx += ROBOT_SPEED
-    if keys[pygame.K_a]: vx -= ROBOT_SPEED
-    if keys[pygame.K_w]: vy -= ROBOT_SPEED   # Y-down: W = up screen = smaller Y
-    if keys[pygame.K_s]: vy += ROBOT_SPEED   # Y-down: S = down screen = larger Y
+    if not (keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]):
+        if keys[pygame.K_d]: vx += ROBOT_SPEED
+        if keys[pygame.K_a]: vx -= ROBOT_SPEED
+        if keys[pygame.K_w]: vy -= ROBOT_SPEED   # Y-down: W = up screen = smaller Y
+        if keys[pygame.K_s]: vy += ROBOT_SPEED   # Y-down: S = down screen = larger Y
     mag = math.hypot(vx, vy)
     if mag > ROBOT_SPEED:
         vx *= ROBOT_SPEED / mag
@@ -539,6 +544,9 @@ def main():
     clock      = pygame.time.Clock()
 
     rx, ry = map_data['spawn']
+    # heading: angle in radians, Y-down world. 0=East, π/2=South, π=West, 3π/2=North
+    heading = 0.0
+    autonomous = False   # Q toggles between autonomous and teleop
 
     while True:
         dt = clock.tick(FPS) / 1000.0
@@ -552,19 +560,41 @@ def main():
                     pygame.quit(); sys.exit()
                 if event.key == pygame.K_e:
                     rx, ry = map_data['spawn']
+                    heading = 0.0
+                if event.key == pygame.K_q:
+                    autonomous = not autonomous
+                # Shift+WASD rotates heading (N/S/E/W only, Y-down world)
+                if pygame.key.get_mods() & pygame.KMOD_SHIFT:
+                    if event.key == pygame.K_d: heading = 0.0            # East
+                    if event.key == pygame.K_s: heading = math.pi / 2    # South
+                    if event.key == pygame.K_a: heading = math.pi        # West
+                    if event.key == pygame.K_w: heading = 3 * math.pi / 2  # North
 
         # Camera IPM (must happen before motion command)
         cam_data = render_camera_view(cam_surf, rx, ry, map_data)
 
         # Motion
-        vx, vy = get_motion_command({'x': rx, 'y': ry}, cam_data)
+        if autonomous:
+            vx, vy = get_motion_command({'x': rx, 'y': ry, 'heading': heading}, cam_data)
+        else:
+            keys = pygame.key.get_pressed()
+            vx, vy = 0.0, 0.0
+            if not (keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]):
+                if keys[pygame.K_d]: vx += ROBOT_SPEED
+                if keys[pygame.K_a]: vx -= ROBOT_SPEED
+                if keys[pygame.K_w]: vy -= ROBOT_SPEED
+                if keys[pygame.K_s]: vy += ROBOT_SPEED
+            mag = math.hypot(vx, vy)
+            if mag > ROBOT_SPEED:
+                vx *= ROBOT_SPEED / mag
+                vy *= ROBOT_SPEED / mag
 
         # Integrate position
         rx = max(0.0, rx + vx * dt)
         ry = max(0.0, ry + vy * dt)
 
         # Top-down render
-        render_topdown(top_surf, rx, ry, map_data, font)
+        render_topdown(top_surf, rx, ry, heading, map_data, font)
 
         # Composite
         screen.fill((10, 10, 14))
@@ -575,6 +605,11 @@ def main():
         screen.blit(title_font.render("TOP-DOWN VIEW",   True, (190, 190, 200)), (6, TOP_PY - 14))
         screen.blit(title_font.render("CAMERA IPM 360°", True, (190, 190, 200)),
                     (TOP_PX + 12, TOTAL_H - 18))
+
+        # Autonomous mode indicator
+        mode_text  = "MODE: AUTO" if autonomous else "MODE: TELEOP"
+        mode_color = (80, 220, 80) if autonomous else (220, 120, 80)
+        screen.blit(title_font.render(mode_text, True, mode_color), (TOP_PX + 12, 6))
 
         # FPS counter
         screen.blit(font.render(f"{clock.get_fps():.0f} fps", True, (65, 105, 65)),
