@@ -481,28 +481,10 @@ def render_topdown(surface, rx, ry, heading, map_data, font):
 def get_motion_command(robot_state, camera_view_data):
     """
     Return (vx, vy) in world-frame m/s.
-
-    robot_state      : dict  {'x': float, 'y': float}
-    camera_view_data : np.ndarray shape (W, H, 3), dtype uint8
-                       This is the live IPM composite.
-                       Yellow tape pixels ≈ R>180, G>160, B<80
-                       Blue tape   pixels ≈ B>180, R<80
-
-    Default: WASD teleoperation.
-    W = +Y (forward),  S = −Y,  A = −X (left),  D = +X (right).
+    Autonomous logic lives in driver.py — swap strategies by replacing that file.
     """
-    keys = pygame.key.get_pressed()
-    vx, vy = 0.0, 0.0
-    if not (keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]):
-        if keys[pygame.K_d]: vx += ROBOT_SPEED
-        if keys[pygame.K_a]: vx -= ROBOT_SPEED
-        if keys[pygame.K_w]: vy -= ROBOT_SPEED   # Y-down: W = up screen = smaller Y
-        if keys[pygame.K_s]: vy += ROBOT_SPEED   # Y-down: S = down screen = larger Y
-    mag = math.hypot(vx, vy)
-    if mag > ROBOT_SPEED:
-        vx *= ROBOT_SPEED / mag
-        vy *= ROBOT_SPEED / mag
-    return vx, vy
+    from driver import get_motion_command as _drive
+    return _drive(robot_state, camera_view_data)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
