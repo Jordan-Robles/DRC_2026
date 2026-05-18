@@ -3,7 +3,7 @@ import numpy as np
 
 
 def img_preprocess(img): #pre-process our data to be used inside our model
-    img = img[60:135,: ] #crops out the parts of the image that isnt in the range of 60:135, hence keeping only the road 
+    img = img[:135,: ] #crops out the parts of the image that isnt in the range of 60:135, hence keeping only the road 
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV) #converts the image from RGB to HSV colour space, which is more suitable for colour detection
 
     # Yellow mask
