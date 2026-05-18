@@ -14,9 +14,10 @@ const int M3_IN1 = 12;
 const int M3_IN2 = 13;
 
 // --- Config ---
-const int DRIVE_SPEED = 200;   // forward speed for M1 + M2 (0–255) 170
+const int DRIVE_SPEED = 215;   // forward speed for M1 + M2 (0–255) 200 for tiles 
 const int TURN_SCALE  = 255;   // max turning power 255
 
+int minSteeringPower = 120; // 150 for tiles
 // --- Serial ---
 String inputBuffer = "";
 float steeringAngle = 0;
@@ -85,8 +86,8 @@ void loop() {
 
   // --- Steering (rear wheel) ---
 int turnPower = (int)(steeringAngle * TURN_SCALE);
-  if (turnPower != 0 && abs(turnPower) < 150) {
-    turnPower = (turnPower > 0) ? 150 : -150;
+  if (turnPower != 0 && abs(turnPower) < minSteeringPower ) {
+    turnPower = (turnPower > 0) ? minSteeringPower : -minSteeringPower;
   }
 
   setMotor(M3_EN, M3_IN1, M3_IN2, turnPower);
