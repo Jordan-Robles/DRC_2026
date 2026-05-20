@@ -3,7 +3,7 @@ import numpy as np
 
 
 def img_preprocess(img): #pre-process our data to be used inside our model
-    img = img[:135,: ] #crops out the parts of the image that isnt in the range of 60:135, hence keeping only the road 
+    img = img[60:,: ] #crops out the parts of the image that isnt in the range of 60:135, hence keeping only the road 
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV) #converts the image from RGB to HSV colour space, which is more suitable for colour detection
 
     # Yellow mask
@@ -17,6 +17,12 @@ def img_preprocess(img): #pre-process our data to be used inside our model
 
     #Combine masks
     mask = cv2.bitwise_or(yellow_mask, blue_mask) #combines the two masks to create a single mask that highlights both yellow and blue lines
+
+    
+    kernel = np.ones((9,9), np.uint8)#use bigger kernel to connect bigger gaps
+
+
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
     # Apply mask to original image (show only yellow and blue lines)
     img = cv2.bitwise_and(img, img, mask=mask)
