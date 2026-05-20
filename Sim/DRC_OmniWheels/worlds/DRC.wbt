@@ -6,6 +6,7 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/vehicles/protos/abstract/AckermannVehicle.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/vehicles/protos/abstract/VehicleWheel.proto"
 IMPORTABLE EXTERNPROTO "../protos/three_omniwheel.proto"
+IMPORTABLE EXTERNPROTO "../protos/three_omniwheel_rev.proto"
 
 WorldInfo {
   contactProperties [
@@ -18,8 +19,8 @@ WorldInfo {
   ]
 }
 Viewpoint {
-  orientation 0.20963587474770726 -0.36707148056714717 -0.9062622844259857 5.086974806839098
-  position -5.424293310405199 -7.635606968387302 2.7852544187079613
+  orientation -0.2221231214226139 -0.6116684539108685 0.7592911308712635 5.341857783074856
+  position -7.216932621650428 1.7588156192869493 3.408550188072832
   follow "robot:solid(3)"
 }
 TexturedBackground {
@@ -187,8 +188,8 @@ Robot {
         }
       ]
       endPoint Solid {
-        translation 0.1336302840937359 -3.244515581629783e-08 0.02001290133116146
-        rotation 0.9999999999983316 -1.6174852416205439e-06 8.489114417618778e-07 0.968209459739731
+        translation 0.13363028409373584 -3.244515581629783e-08 0.02001290133116146
+        rotation 0.9999999999983317 -1.617485241544726e-06 8.489114417220861e-07 0.968209459739731
         children [
           DEF Rear_wheel Shape {
             appearance PBRAppearance {
@@ -258,8 +259,6 @@ Robot {
   controller "Kiwi_Control"
 }
 AckermannVehicle {
-  hidden rotation_1 0 0 1 6.283185307179586
-  hidden rotation_2 0 0 1 6.283185307179586
   translation -4.81 -1.99 0.04
   rotation 0 0 1 1.5708
   trackFront 0.178
@@ -291,4 +290,8 @@ AckermannVehicle {
     centralInnerRadius 0.01
     wheelSide TRUE
   }
+}
+DEF OMNI_WHEELS three_omniwheel_rev {
+  translation -2.69 -1.51 0.03
+  rotation 0 0 1 -0.785395307179586
 }
