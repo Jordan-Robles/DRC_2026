@@ -5,6 +5,7 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/vehicles/protos/abstract/AckermannVehicle.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/vehicles/protos/abstract/VehicleWheel.proto"
+IMPORTABLE EXTERNPROTO "../protos/three_omniwheel.proto"
 
 WorldInfo {
   contactProperties [
@@ -17,8 +18,8 @@ WorldInfo {
   ]
 }
 Viewpoint {
-  orientation 0.5073747973976838 -0.47856163248182093 -0.7166237359186437 4.393246230637573
-  position -2.977230828604937 -3.027346911709673 1.6141072793927913
+  orientation 0.20963587474770726 -0.36707148056714717 -0.9062622844259857 5.086974806839098
+  position -5.424293310405199 -7.635606968387302 2.7852544187079613
   follow "robot:solid(3)"
 }
 TexturedBackground {
@@ -186,7 +187,7 @@ Robot {
         }
       ]
       endPoint Solid {
-        translation 0.13363028409373606 -3.244515581629783e-08 0.02001290133116146
+        translation 0.1336302840937359 -3.244515581629783e-08 0.02001290133116146
         rotation 0.9999999999983316 -1.6174852416205439e-06 8.489114417618778e-07 0.968209459739731
         children [
           DEF Rear_wheel Shape {
