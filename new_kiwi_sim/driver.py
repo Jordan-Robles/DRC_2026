@@ -42,19 +42,19 @@ MIN_PIXELS = 50
 CENTRE_DEAD_ZONE_PX = 55
 
 # How strongly lateral error drives correction
-LATERAL_GAIN = 2.5
+LATERAL_GAIN = 4 # from 2.5
 
 # Minimum forward component (fraction of ROBOT_SPEED)
 MIN_FORWARD = 0.2
 
 # Target distance from wall as fraction of max visible radius (single wall mode)
-SINGLE_WALL_TARGET_FRACTION = 0.45
+SINGLE_WALL_TARGET_FRACTION = 0.6 # from 0.45
 
 # Dynamic heading tracking rate
 HEADING_TRACK_RATE = 0.15
 
 # Frames to search for lost wall before committing to corner mode
-SEARCH_TIMEOUT_FRAMES = 30
+SEARCH_TIMEOUT_FRAMES = 60 # from 30fps
 
 # Nudge strength when searching for lost wall
 SEARCH_NUDGE = 0.25
