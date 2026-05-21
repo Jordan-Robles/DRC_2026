@@ -7,7 +7,7 @@ import csv
 import os
 import time
 from datetime import datetime
-#This code is for ackerman platform
+#This code is for ackerman platform (Kyoshso Fazer mk2 chassis)
 
 # === CONFIG ===
 OUTPUT_DIR = r'C:\Users\jorda\DRC_2026\Data'

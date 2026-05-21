@@ -65,7 +65,8 @@ try:
             continue
 
         # Show live stream
-        cv2.imshow("Live Stream", frame)
+        userFrame = ColourFilter.img_preprocess(frame)
+        cv2.imshow("Live Stream", userFrame)
         key = cv2.waitKey(1) & 0xFF
         if key == 27:  # ESC key
             print("ESC pressed. Exiting...")

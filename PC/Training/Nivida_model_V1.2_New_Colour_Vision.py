@@ -13,6 +13,7 @@ import cv2
 import pandas as pd
 import ntpath #used to delete the path 
 import random
+from Colour_filters import ColourFilter
 
 
 #===read the data with pandas===
@@ -136,6 +137,7 @@ def image_random_brightness(image):
     image = brightness.augment_image(image)
     return image
 
+
 def image_random_flip(image, steering_angle):
     image = cv2.flip(image, 1) #flips the image horizontally
     steering_angle = -steering_angle #steering anlge has to match the flipped image
@@ -154,44 +156,10 @@ def random_augment(image, steering_angle):
     return image, steering_angle
 
 
-
-
-#===Here we preporcess the images to the nividas specified YUV format
-
-#will need to replace the funciton with code that reads the csv file gnereated from the gui
-
-def img_preprocess(img): #pre-process our data to be used inside our model
-    img = img[:135,: ] # img[60:135,: ] crops out the parts of the image that isnt in the range of 60:135, hence keeping only the road 
-    hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV) #converts the image from RGB to HSV colour space, which is more suitable for colour detection
-
-    # Yellow mask
-    lower_yellow = np.array([15, 80, 80]) #lower bound for yellow in YUV
-    upper_yellow  = np.array([35, 255, 255]) #creates a mask for the yellow lines on the road
-    yellow_mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
-    # Blue mask
-    lower_blue = np.array([90, 80, 80])
-    upper_blue = np.array([130, 255, 255])
-    blue_mask = cv2.inRange(hsv, lower_blue, upper_blue)
-
-    #Combine masks
-    mask = cv2.bitwise_or(yellow_mask, blue_mask) #combines the two masks to create a single mask that highlights both yellow and blue lines
-
-    # Apply mask to original image (show only yellow and blue lines)
-    img = cv2.bitwise_and(img, img, mask=mask)
-
-    #img = yellow_mask + blue_mask
-    img = cv2.GaussianBlur(img, (3,3), 0)# smoothens the iamge and reduces noise. It works by using convultion
-    img = cv2.resize(img, (200, 66)) #reduces computational costs and is also used as the input size in teh nivida model
-    img = img/255 #normalises the image
-
-    if len(img.shape) == 2:
-        img = np.stack((img,)*3, axis = -1)
-    return img
-
 #image = image_paths[r'C:\Users\jorda\DRC\Testing_Data\Test5\centre_20250703_154513_666341.jpg'] #selects the image x to he used
 image = r'C:\Users\jorda\Desktop\Code\Python\DRC_2025\DRC_2025\Testing_Data\Test45\centre_20250703_154513_666341.jpg' #Desktop C:\Users\jorda\Desktop\Code\Python\DRC_2025\DRC_2025\Testing_Data\Test45\centre_20250703_154513_666341.jpg | C:\Users\jorda\DRC\Testing_Data\Test5\centre_20250703_154513_666341.jpg
 original_image = mpimg.imread(image)
-preprocessed_image = img_preprocess(original_image)
+preprocessed_image = ColourFilter.img_preprocess(original_image)
 
 fig, axis = plt.subplots(1,2, figsize = (15,10)) #creates the a figure with both original image and pre-processed next to each other
 fig.tight_layout() #ensures the image is formated and that the axis dont overlap
@@ -215,7 +183,7 @@ def batch_generator(image_paths, steering_angle, batch_size, istraining): #last 
                 im = mpimg.imread(image_paths[random_index])# reads an iamge file from the path specified by img and loads it into a NumPy array (pixel data)
                 steering = steering_angle[random_index]
 
-            im = img_preprocess(im)
+            im = ColourFilter.img_preprocess(im)
             batch_img.append(im)
             batch_steering.append(steering)
         yield (np.array(batch_img), np.asarray(batch_steering))

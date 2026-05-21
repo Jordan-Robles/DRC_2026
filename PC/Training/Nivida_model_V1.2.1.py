@@ -301,7 +301,6 @@ history = model.fit(batch_generator(X_train, Y_train, 100, 1),
                               shuffle = 1,
                               callbacks = [lr_scheduler, early_stop])
 
-
 plt.figure()
 plt.plot(history.history['loss'])
 plt.plot(history.history['val_loss'])
