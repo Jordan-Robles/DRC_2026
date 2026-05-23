@@ -447,8 +447,8 @@ def render_camera_view(surface, rx, ry, map_data, motion_angle=0.0, debug_frame=
         bar_surf.fill((0, 0, 0, 170))
         for i, (text, colour) in enumerate(lines):
             bar_surf.blit(_mfont.render(text, True, colour), (4, 2 + i * line_h))
-        # Place bar 20px above the bottom edge so it clears the panel label
-        surface.blit(bar_surf, (0, CAM_WIN_SIZE - bar_h - 20))
+        # Place bar near the bottom edge, clear of the panel label below
+        surface.blit(bar_surf, (0, CAM_WIN_SIZE - bar_h - 8))
 
     return pygame.surfarray.array3d(surface)   # (W,H,3) for autonomous code
 
@@ -745,14 +745,11 @@ def main():
         screen.blit(font.render(      f"YLW hits: {yellow_hits}", True, (230, 200, 20)), (cam_x + 6, 42))
         screen.blit(font.render(      f"BLU hits: {blue_hits}",   True, (80, 140, 255)), (cam_x + 6, 58))
 
-        # Motion angle — top-right of cam panel
-        angle_label = f"{math.degrees(motion_angle) % 360:.0f}°"
-        albl = font.render(angle_label, True, (255, 100, 100))
-        screen.blit(albl, (cam_x + CAM_WIN_SIZE - albl.get_width() - 4, 4))
-
-        # FPS — top-right of top-down panel (separate from angle)
-        screen.blit(font.render(f"{clock.get_fps():.0f} fps", True, (65, 105, 65)),
-                    (TOP_PX - 54, 4))
+        # FPS + angle — stacked in the top-right corner of the window
+        fps_surf = font.render(f"{clock.get_fps():.0f} fps", True, (65, 105, 65))
+        ang_surf = font.render(f"{math.degrees(motion_angle) % 360:.0f}°", True, (255, 100, 100))
+        screen.blit(fps_surf, (TOTAL_W - fps_surf.get_width() - 4, 4))
+        screen.blit(ang_surf, (TOTAL_W - ang_surf.get_width() - 4, 4 + fps_surf.get_height() + 2))
 
         pygame.display.flip()
 

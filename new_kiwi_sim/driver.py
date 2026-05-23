@@ -28,7 +28,7 @@ import cv2
 # PARAMETERS
 # ─────────────────────────────────────────────────────────────────────────────
 
-ROBOT_SPEED = 0.5
+ROBOT_SPEED = 0.8
 
 YELLOW_HSV_LOW  = np.array([ 20, 100, 100])
 YELLOW_HSV_HIGH = np.array([ 40, 255, 255])
@@ -57,7 +57,7 @@ HEADING_TRACK_RATE = 0.15
 SEARCH_TIMEOUT_FRAMES = 60 # from 30fps
 
 # Nudge strength when searching for lost wall
-SEARCH_NUDGE = 0.25
+SEARCH_NUDGE = 1 # from 0.25
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STATE
