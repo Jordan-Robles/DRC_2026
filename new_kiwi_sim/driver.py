@@ -28,7 +28,7 @@ import cv2
 # PARAMETERS
 # ─────────────────────────────────────────────────────────────────────────────
 
-ROBOT_SPEED = 0.5
+ROBOT_SPEED = 0.8
 
 YELLOW_HSV_LOW  = np.array([ 20, 100, 100])
 YELLOW_HSV_HIGH = np.array([ 40, 255, 255])
@@ -42,22 +42,22 @@ MIN_PIXELS = 50
 CENTRE_DEAD_ZONE_PX = 55
 
 # How strongly lateral error drives correction
-LATERAL_GAIN = 2.5
+LATERAL_GAIN = 4 # from 2.5
 
 # Minimum forward component (fraction of ROBOT_SPEED)
 MIN_FORWARD = 0.2
 
 # Target distance from wall as fraction of max visible radius (single wall mode)
-SINGLE_WALL_TARGET_FRACTION = 0.45
+SINGLE_WALL_TARGET_FRACTION = 0.45 # from 0.45
 
 # Dynamic heading tracking rate
 HEADING_TRACK_RATE = 0.15
 
 # Frames to search for lost wall before committing to corner mode
-SEARCH_TIMEOUT_FRAMES = 30
+SEARCH_TIMEOUT_FRAMES = 60 # from 30fps
 
 # Nudge strength when searching for lost wall
-SEARCH_NUDGE = 0.25
+SEARCH_NUDGE = 1 # from 0.25
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STATE
@@ -156,7 +156,7 @@ def get_motion_command(robot_state, camera_view_data):
             _away_from_blue_x   = None
             _away_from_blue_y   = None
             _last_x, _last_y    = rx, ry
-            return 0.0, 0.0
+            return 0.0, 0.0, None
         if dist > 1e-4:
             travel = math.atan2(ddy, ddx)
             diff = (travel - _dynamic_heading + math.pi) % (2 * math.pi) - math.pi
@@ -212,7 +212,15 @@ def get_motion_command(robot_state, camera_view_data):
             if _search_frames_left <= 0:
                 _drive_state = 'corner_blue'
     else:
-        return _last_vx, _last_vy
+        _dbg = (img_bgr.copy(), {
+            'have_yellow': False, 'have_blue': False, 'have_both': False,
+            'ydx': 0, 'ydy': 0, 'y_count': 0,
+            'bdx': 0, 'bdy': 0, 'b_count': 0,
+            'cmd_vx': _last_vx, 'cmd_vy': _last_vy,
+            'state': 'no_walls', 'heading': heading,
+            'dead_zone': CENTRE_DEAD_ZONE_PX, 'rx': rx, 'ry': ry,
+        })
+        return _last_vx, _last_vy, _dbg
 
     fwd_x = math.cos(heading)
     fwd_y = math.sin(heading)
@@ -273,7 +281,15 @@ def get_motion_command(robot_state, camera_view_data):
         raw_vy = fwd_y + away_y * standoff_error * LATERAL_GAIN
 
     else:
-        return _last_vx, _last_vy
+        _dbg = (img_bgr.copy(), {
+            'have_yellow': have_yellow, 'have_blue': have_blue, 'have_both': False,
+            'ydx': ydx, 'ydy': ydy, 'y_count': y_count,
+            'bdx': bdx, 'bdy': bdy, 'b_count': b_count,
+            'cmd_vx': _last_vx, 'cmd_vy': _last_vy,
+            'state': 'fallthrough', 'heading': heading,
+            'dead_zone': CENTRE_DEAD_ZONE_PX, 'rx': rx, 'ry': ry,
+        })
+        return _last_vx, _last_vy, _dbg
 
     # ── Minimum forward component ─────────────────────────────────────────────
     fwd_component = raw_vx * fwd_x + raw_vy * fwd_y
@@ -283,4 +299,19 @@ def get_motion_command(robot_state, camera_view_data):
 
     vx, vy = _normalise(raw_vx, raw_vy, ROBOT_SPEED)
     _last_vx, _last_vy = vx, vy
-    return vx, vy
+
+    # ── Store debug frame for render_debug_panel ──────────────────────────────
+    _dbg = (img_bgr.copy(), {
+        'have_yellow': have_yellow,
+        'have_blue':   have_blue,
+        'have_both':   have_both,
+        'ydx': ydx, 'ydy': ydy, 'y_count': y_count,
+        'bdx': bdx, 'bdy': bdy, 'b_count': b_count,
+        'cmd_vx': vx,  'cmd_vy': vy,
+        'state':   _drive_state,
+        'heading': heading,
+        'dead_zone': CENTRE_DEAD_ZONE_PX,
+        'rx': rx, 'ry': ry,
+    })
+
+    return vx, vy, _dbg

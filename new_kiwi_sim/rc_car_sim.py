@@ -296,10 +296,15 @@ def r2c(dx_m, dy_m):
 # CAMERA IPM RENDERING
 # ─────────────────────────────────────────────────────────────────────────────
 
-def render_camera_view(surface, rx, ry, map_data):
+def render_camera_view(surface, rx, ry, map_data, motion_angle=0.0, debug_frame=None):
     """
-    Render the stitched 360° IPM floor map.
+    Render the stitched 360° IPM floor map, and overlay driver decision vectors
+    if debug_frame is provided (AUTO mode).
     Returns a (W, H, 3) numpy array of the rendered surface.
+    motion_angle: radians, world-frame direction of current velocity command.
+                  The red nose dot is drawn at this angle so it tracks actual
+                  travel direction in both teleop and autonomous modes.
+    debug_frame: (img_bgr, info) tuple from driver.get_motion_command, or None.
     """
     surface.fill((14, 14, 19))
     half_fov = math.radians(CAM_HFOV_DEG) / 2.0
@@ -364,9 +369,11 @@ def render_camera_view(surface, rx, ry, map_data):
     pygame.draw.circle(surface, C_ROB_FILL, centre, int(ROBOT_RADIUS_M * CAM_SCALE))
     pygame.draw.circle(surface, C_ROB_RING, centre, int(ROBOT_RADIUS_M * CAM_SCALE), 1)
 
-    # Nose dot (+X world direction → right on IPM screen)
+    # Nose dot — tracks motion_angle (actual travel direction)
+    nose_r = ROBOT_RADIUS_M + 0.025
     pygame.draw.circle(surface, C_NOSE,
-                        r2c(ROBOT_RADIUS_M + 0.025, 0), 4)
+                        r2c(nose_r * math.cos(motion_angle),
+                            nose_r * math.sin(motion_angle)), 4)
 
     # Camera face dots
     for i in range(NUM_CAMS):
@@ -374,6 +381,74 @@ def render_camera_view(surface, rx, ry, map_data):
         pygame.draw.circle(surface, C_CAM_DOT,
                             r2c(CAM_ARRAY_R_M * math.cos(a),
                                 CAM_ARRAY_R_M * math.sin(a)), 4)
+
+    # ── Driver decision overlays (AUTO mode only) ─────────────────────────────
+    if debug_frame is not None:
+        _, info = debug_frame
+        cx = CAM_WIN_SIZE // 2
+        cy = CAM_WIN_SIZE // 2
+        # scale: info vectors are in IPM image pixels; CAM_WIN_SIZE == image size
+        # so scale is 1.0 — vectors map directly to screen pixels from centre.
+
+        def _vec(dx, dy, colour, width=2, label=None):
+            ex = int(cx + dx)
+            ey = int(cy + dy)
+            if ex == cx and ey == cy:
+                return
+            pygame.draw.line(surface, colour, (cx, cy), (ex, ey), width)
+            angle = math.atan2(ey - cy, ex - cx)
+            for da in (+0.4, -0.4):
+                ax = int(ex - 11 * math.cos(angle + da))
+                ay = int(ey - 11 * math.sin(angle + da))
+                pygame.draw.line(surface, colour, (ex, ey), (ax, ay), width)
+            if label:
+                lbl_surf = pygame.font.SysFont("monospace", 11).render(label, True, colour)
+                surface.blit(lbl_surf, (ex + 4, ey - 8))
+
+        # Dead-zone circle
+        dz = int(info.get('dead_zone', 0))
+        if dz > 0:
+            pygame.draw.circle(surface, (70, 70, 90), (cx, cy), dz, 1)
+
+        # Yellow wall vector
+        if info.get('have_yellow'):
+            _vec(info['ydx'], info['ydy'], (230, 200, 20), width=3, label='Y')
+
+        # Blue wall vector
+        if info.get('have_blue'):
+            _vec(info['bdx'], info['bdy'], (80, 140, 255), width=3, label='B')
+
+        # Midpoint / correction vector
+        if info.get('have_both'):
+            _vec((info['ydx'] + info['bdx']) / 2.0,
+                 (info['ydy'] + info['bdy']) / 2.0,
+                 (0, 220, 140), width=2, label='mid')
+
+        # Commanded velocity arrow (scaled to ~80px)
+        vx_c = info.get('cmd_vx', 0.0)
+        vy_c = info.get('cmd_vy', 0.0)
+        mag = math.hypot(vx_c, vy_c)
+        if mag > 1e-4:
+            _vec(vx_c / mag * 80, vy_c / mag * 80, (255, 90, 90), width=3, label='cmd')
+
+        # ── Info text strip — semi-transparent bar at the bottom of the IPM ───
+        _mfont  = pygame.font.SysFont("monospace", 11)
+        state   = info.get('state', '?')
+        hdg     = math.degrees(info.get('heading', 0.0)) % 360
+        lines = [
+            (f"ST: {state:<16} hdg:{hdg:.0f}°",                               (180, 180, 220)),
+            (f"Y:{info.get('y_count',0):<5} B:{info.get('b_count',0):<5} "
+             f"cmd:({info.get('cmd_vx',0):.2f},{info.get('cmd_vy',0):.2f})",   (180, 180, 220)),
+            (f"x={info.get('rx',0):.2f} y={info.get('ry',0):.2f}",            (150, 150, 190)),
+        ]
+        line_h   = 13
+        bar_h    = len(lines) * line_h + 4
+        bar_surf = pygame.Surface((CAM_WIN_SIZE, bar_h), pygame.SRCALPHA)
+        bar_surf.fill((0, 0, 0, 170))
+        for i, (text, colour) in enumerate(lines):
+            bar_surf.blit(_mfont.render(text, True, colour), (4, 2 + i * line_h))
+        # Place bar near the bottom edge, clear of the panel label below
+        surface.blit(bar_surf, (0, CAM_WIN_SIZE - bar_h - 8))
 
     return pygame.surfarray.array3d(surface)   # (W,H,3) for autonomous code
 
@@ -480,11 +555,11 @@ def render_topdown(surface, rx, ry, heading, map_data, font):
 
 def get_motion_command(robot_state, camera_view_data):
     """
-    Return (vx, vy) in world-frame m/s.
+    Return (vx, vy, debug_frame) — debug_frame is passed to render_debug_panel.
     Autonomous logic lives in driver.py — swap strategies by replacing that file.
     """
-    from driver import get_motion_command as _drive
-    return _drive(robot_state, camera_view_data)
+    import driver as _driver_mod
+    return _driver_mod.get_motion_command(robot_state, camera_view_data)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -514,13 +589,13 @@ def main():
 
     # tkinter is fully gone — safe to start pygame now
     pygame.init()
-    TOTAL_W = TOP_PX + CAM_WIN_SIZE + 8
+    TOTAL_W = TOP_PX + 8 + CAM_WIN_SIZE
     TOTAL_H = max(TOP_PY, CAM_WIN_SIZE)
     screen  = pygame.display.set_mode((TOTAL_W, TOTAL_H))
     pygame.display.set_caption("RC Car Simulator")
 
-    top_surf   = pygame.Surface((TOP_PX, TOP_PY))
-    cam_surf   = pygame.Surface((CAM_WIN_SIZE, CAM_WIN_SIZE))
+    top_surf = pygame.Surface((TOP_PX, TOP_PY))
+    cam_surf = pygame.Surface((CAM_WIN_SIZE, CAM_WIN_SIZE))
     font       = pygame.font.SysFont("monospace", 13)
     title_font = pygame.font.SysFont("monospace", 14, bold=True)
     clock      = pygame.time.Clock()
@@ -529,6 +604,16 @@ def main():
     # heading: angle in radians, Y-down world. 0=East, π/2=South, π=West, 3π/2=North
     heading = 0.0
     autonomous = False   # Q toggles between autonomous and teleop
+    motion_angle = 0.0   # angle of the actual velocity command (vx, vy)
+
+    # ── Lap counter ──────────────────────────────────────────────────────────
+    lap_count   = 0
+    yellow_hits = 0
+    blue_hits   = 0
+    # For each segment store the last side the robot was on (+1 / -1)
+    _green_sides  = {}   # seg_index → last signed side
+    _yellow_sides = {}
+    _blue_sides   = {}
 
     while True:
         dt = clock.tick(FPS) / 1000.0
@@ -543,6 +628,12 @@ def main():
                 if event.key == pygame.K_e:
                     rx, ry = map_data['spawn']
                     heading = 0.0
+                    lap_count   = 0
+                    yellow_hits = 0
+                    blue_hits   = 0
+                    _green_sides  = {}
+                    _yellow_sides = {}
+                    _blue_sides   = {}
                 if event.key == pygame.K_q:
                     autonomous = not autonomous
                 # Shift+WASD rotates heading (N/S/E/W only, Y-down world)
@@ -552,12 +643,13 @@ def main():
                     if event.key == pygame.K_a: heading = math.pi        # West
                     if event.key == pygame.K_w: heading = 3 * math.pi / 2  # North
 
-        # Camera IPM (must happen before motion command)
-        cam_data = render_camera_view(cam_surf, rx, ry, map_data)
+        # Camera IPM base pass — must happen before motion command (driver reads it)
+        cam_data = render_camera_view(cam_surf, rx, ry, map_data, motion_angle)
 
         # Motion
+        debug_frame = None
         if autonomous:
-            vx, vy = get_motion_command({'x': rx, 'y': ry, 'heading': heading}, cam_data)
+            vx, vy, debug_frame = get_motion_command({'x': rx, 'y': ry, 'heading': heading}, cam_data)
         else:
             keys = pygame.key.get_pressed()
             vx, vy = 0.0, 0.0
@@ -571,31 +663,93 @@ def main():
                 vx *= ROBOT_SPEED / mag
                 vy *= ROBOT_SPEED / mag
 
+        # Track motion angle for heading indicator
+        if math.hypot(vx, vy) > 1e-4:
+            motion_angle = math.atan2(vy, vx)
+
         # Integrate position
         rx = max(0.0, rx + vx * dt)
         ry = max(0.0, ry + vy * dt)
 
+        # ── Line crossing detection ───────────────────────────────────────────
+        # Fires when the robot's physical edge first contacts a line segment —
+        # i.e. when the perpendicular distance from the robot centre to the
+        # segment drops below ROBOT_RADIUS_M.
+        # sides_dict tracks which side of each segment the robot is on so that:
+        #   - It only counts once per crossing (not every frame while touching)
+        #   - It won't re-count until the robot has fully cleared to the other side
+        def _check_crossings(segs, sides_dict):
+            count = 0
+            for idx, seg in enumerate(segs):
+                (x1, y1), (x2, y2) = seg
+                seg_len2 = (x2-x1)**2 + (y2-y1)**2
+                if seg_len2 < 1e-12:
+                    continue
+                seg_len = math.sqrt(seg_len2)
+
+                # Closest point on the segment to the robot centre
+                t = ((rx-x1)*(x2-x1) + (ry-y1)*(y2-y1)) / seg_len2
+                if not (0.0 <= t <= 1.0):
+                    continue  # robot is off the end of this segment
+
+                # Perpendicular distance from robot centre to the segment line
+                perp = ((x2-x1)*(ry-y1) - (y2-y1)*(rx-x1)) / seg_len
+                perp_dist = abs(perp)
+
+                # Which side of the line is the centre on (+1 or -1)
+                curr_side = 1 if perp >= 0 else -1
+                last_side = sides_dict.get(idx)
+
+                if perp_dist <= ROBOT_RADIUS_M:
+                    # Robot edge is touching/crossing the line
+                    if last_side is not None and last_side != curr_side:
+                        # Side has changed while touching — count one crossing
+                        count += 1
+                    sides_dict[idx] = curr_side
+                else:
+                    # Robot is clear of the line — update side freely so we're
+                    # ready to detect the next approach from either direction
+                    sides_dict[idx] = curr_side
+            return count
+
+        lap_count   += _check_crossings(map_data.get('green', []), _green_sides)
+        yellow_hits += _check_crossings(map_data['outer'],          _yellow_sides)
+        blue_hits   += _check_crossings(map_data['inner'],          _blue_sides)
+
         # Top-down render
         render_topdown(top_surf, rx, ry, heading, map_data, font)
 
-        # Composite
+        # IPM overlay pass — draw driver decision vectors onto cam_surf now that
+        # debug_frame is available (couldn't do it during the base pass above)
+        if debug_frame is not None:
+            render_camera_view(cam_surf, rx, ry, map_data, motion_angle, debug_frame)
+
+        # ── Composite: fixed layout, no swapping ──────────────────────────────
         screen.fill((10, 10, 14))
+        cam_x = TOP_PX + 8
+        cam_y = (TOTAL_H - CAM_WIN_SIZE) // 2
         screen.blit(top_surf, (0, 0))
-        screen.blit(cam_surf, (TOP_PX + 8, (TOTAL_H - CAM_WIN_SIZE) // 2))
+        screen.blit(cam_surf, (cam_x, cam_y))
 
         # Panel labels
         screen.blit(title_font.render("TOP-DOWN VIEW",   True, (190, 190, 200)), (6, TOP_PY - 14))
-        screen.blit(title_font.render("CAMERA IPM 360°", True, (190, 190, 200)),
-                    (TOP_PX + 12, TOTAL_H - 18))
+        screen.blit(title_font.render("CAMERA IPM 360°", True, (190, 190, 200)), (cam_x + 6, TOTAL_H - 18))
 
-        # Autonomous mode indicator
+        # Mode indicator — top-left of cam panel
         mode_text  = "MODE: AUTO" if autonomous else "MODE: TELEOP"
         mode_color = (80, 220, 80) if autonomous else (220, 120, 80)
-        screen.blit(title_font.render(mode_text, True, mode_color), (TOP_PX + 12, 6))
+        screen.blit(title_font.render(mode_text, True, mode_color), (cam_x + 6, 6))
 
-        # FPS counter
-        screen.blit(font.render(f"{clock.get_fps():.0f} fps", True, (65, 105, 65)),
-                    (TOTAL_W - 58, 4))
+        # Counters — below mode on cam panel (clear of the top-down HUD)
+        screen.blit(title_font.render(f"LAPS:  {lap_count}",      True, (80, 220, 80)),  (cam_x + 6, 24))
+        screen.blit(font.render(      f"YLW hits: {yellow_hits}", True, (230, 200, 20)), (cam_x + 6, 42))
+        screen.blit(font.render(      f"BLU hits: {blue_hits}",   True, (80, 140, 255)), (cam_x + 6, 58))
+
+        # FPS + angle — stacked in the top-right corner of the window
+        fps_surf = font.render(f"{clock.get_fps():.0f} fps", True, (65, 105, 65))
+        ang_surf = font.render(f"{math.degrees(motion_angle) % 360:.0f}°", True, (255, 100, 100))
+        screen.blit(fps_surf, (TOTAL_W - fps_surf.get_width() - 4, 4))
+        screen.blit(ang_surf, (TOTAL_W - ang_surf.get_width() - 4, 4 + fps_surf.get_height() + 2))
 
         pygame.display.flip()
 
