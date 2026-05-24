@@ -1,19 +1,22 @@
 import os
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
 import keras
 from keras.models import Sequential
 from keras.optimizers import Adam
-from keras.layers import Convolution2D, MaxPooling2D, Dropout, Flatten, Dense
-from sklearn.utils import shuffle 
+from keras.layers import Convolution2D, MaxPooling2D, Dropout, Flatten, Dense, BatchNormalization, Activation
+from sklearn.utils import shuffle
 from sklearn.model_selection import train_test_split # used ofr training and validation split
+from keras.callbacks import ReduceLROnPlateau, EarlyStopping
 from imgaug import augmenters as iaa #Image Aug
 import cv2
 import pandas as pd
 import ntpath #used to delete the path 
 import random
-from Colour_filters import ColourFilter
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from Colour_filters.ColourFilter import img_preprocess
 
 
 #===read the data with pandas===
@@ -144,7 +147,7 @@ def image_random_flip(image, steering_angle):
     return image, steering_angle
 
 def random_augment(image, steering_angle):
-    image = mpimg.imread(image)
+    image = cv2.imread(image)
     if np.random.rand() < 0.5: # image is selected 50% of the time 
         image = pan(image)
     if np.random.rand() < 0.5: 
@@ -158,8 +161,8 @@ def random_augment(image, steering_angle):
 
 #image = image_paths[r'C:\Users\jorda\DRC\Testing_Data\Test5\centre_20250703_154513_666341.jpg'] #selects the image x to he used
 image = r'C:\Users\jorda\Desktop\Code\Python\DRC_2025\DRC_2025\Testing_Data\Test45\centre_20250703_154513_666341.jpg' #Desktop C:\Users\jorda\Desktop\Code\Python\DRC_2025\DRC_2025\Testing_Data\Test45\centre_20250703_154513_666341.jpg | C:\Users\jorda\DRC\Testing_Data\Test5\centre_20250703_154513_666341.jpg
-original_image = mpimg.imread(image)
-preprocessed_image = ColourFilter.img_preprocess(original_image)
+original_image = cv2.imread(image)
+preprocessed_image = img_preprocess(original_image, blackWhite=True)
 
 fig, axis = plt.subplots(1,2, figsize = (15,10)) #creates the a figure with both original image and pre-processed next to each other
 fig.tight_layout() #ensures the image is formated and that the axis dont overlap
@@ -180,10 +183,10 @@ def batch_generator(image_paths, steering_angle, batch_size, istraining): #last 
             if istraining:
                 im, steering = random_augment(image_paths[random_index], steering_angle[random_index])
             else:
-                im = mpimg.imread(image_paths[random_index])# reads an iamge file from the path specified by img and loads it into a NumPy array (pixel data)
+                im = cv2.imread(image_paths[random_index])# reads an iamge file from the path specified by img and loads it into a NumPy array (pixel data)
                 steering = steering_angle[random_index]
 
-            im = ColourFilter.img_preprocess(im)
+            im = img_preprocess(im, blackWhite=True)
             batch_img.append(im)
             batch_steering.append(steering)
         yield (np.array(batch_img), np.asarray(batch_steering))
@@ -211,25 +214,36 @@ plt.show()
 def nvidia_model(): #uses 200x66 images
     #Note: look out for dead neurons, if a node gets the input of a negative number, it will return a zero
     model = Sequential()
-    model.add(Convolution2D(24, (5, 5), strides=(2,2), input_shape=(66,200,3), activation = 'elu' ))#1st argument is the number of filters and the 2n&3rd are the dimensions of the kernal
-    #subsample(2,2), it will move 2 pixels across and 2 pixels vertical
-    
-    model.add(Convolution2D(36, (5, 5), strides =(2,2), activation = 'elu'))
-    
+    model.add(Convolution2D(24, (5, 5), strides=(2,2), input_shape=(66,200,3), use_bias=False))#1st argument is the number of filters and the 2n&3rd are the dimensions of the kernal
+    model.add(BatchNormalization())
+    model.add(Activation('elu'))
+
+    model.add(Convolution2D(36, (5, 5), strides =(2,2), use_bias=False))
+    model.add(BatchNormalization())
+    model.add(Activation('elu'))
     #model.add(Dropout(0.5)) #extra dropout layers added to solve the problem of the data overfitting 
 
-    model.add(Convolution2D(48, (5, 5), strides =(2,2), activation = 'elu'))
-
+    model.add(Convolution2D(48, (5, 5), strides =(2,2), use_bias=False))
+    model.add(BatchNormalization())
+    model.add(Activation('elu'))
     #model.add(Dropout(0.5)) #extra dropout layers added to solve the problem of the data overfitting 
 
-    model.add(Convolution2D(64, (3, 3), activation = 'elu')) # we take away the subsampling as the image has been propocessed enough so we stick to a stride lenght of 1
-    model.add(Convolution2D(64, (3, 3), activation = 'elu'))
+    model.add(Convolution2D(64, (3, 3), use_bias=False)) # we take away the subsampling as the image has been propocessed enough so we stick to a stride lenght of 1
+    model.add(BatchNormalization())
+    model.add(Activation('elu'))
+
+    model.add(Convolution2D(64, (3, 3), use_bias=False))
+    model.add(BatchNormalization())
+    model.add(Activation('elu'))
     #model.add(Dropout(0.4)) #Turns in the random inputs they recieve into 0 (50% in this case). Helps with overfitting data
 
+
     model.add(Flatten()) #flattens the data to a 1D array to pass throguht the fully connected layer
+
     model.add(Dense(100, activation ='elu'))
-    #model.add(Dropout(0.4))
+    model.add(Dropout(0.3))
     model.add(Dense(50, activation ='elu'))
+    model.add(Dropout(0.2))
     model.add(Dense(10, activation ='elu'))
     model.add(Dense(1))
 
@@ -240,14 +254,22 @@ def nvidia_model(): #uses 200x66 images
 model = nvidia_model()
 print(model.summary())
 
+lr_scheduler = ReduceLROnPlateau(
+    monitor='val_loss', factor=0.5, patience=2, min_lr=1e-6, verbose=1
+)
+
+early_stop = EarlyStopping(
+    monitor='val_loss', patience=5, restore_best_weights=True
+)
+
 history = model.fit(batch_generator(X_train, Y_train, 100, 1), 
                               steps_per_epoch =300, 
-                              epochs = 10, 
+                              epochs = 30, 
                               validation_data = batch_generator(X_valid, Y_valid, 100, 0), 
                               validation_steps=200, 
                               verbose = 1, 
-                              shuffle = 1)
-
+                              shuffle = 1,
+                              callbacks = [lr_scheduler, early_stop])
 
 plt.figure()
 plt.plot(history.history['loss'])
@@ -258,4 +280,4 @@ plt.xlabel('Epoch')
 
 plt.show()
 
-model.save('model_DRC_2026Test_imgPro.h5')
+model.save('model_DRC_2026_BW_V2.h5')
