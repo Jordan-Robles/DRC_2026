@@ -10,19 +10,19 @@ from datetime import datetime
 import random
 
 # === CONFIG ===
-OUTPUT_DIR = r'C:\Users\jorda\DRC\Testing_Data\test6'
+OUTPUT_DIR = r'C:\Users\jorda\DRC\Testing_Data\Test6'
 CSV_FILE = os.path.join(OUTPUT_DIR, 'labels.csv')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 #NUM_IMAGES = 100  #Amount of images to capture
 CAPTURE_DELAY = 0.1  #Delay between frames
 
 # === Socket setup ===
-HOST = '0.0.0.0'
 PORT = 9999
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.bind((HOST, PORT))
+s.bind(('', PORT))
 s.listen(1)
+print(f"Server started. Waiting for Raspberry Pi to connect on port {PORT}...")
 conn, addr = s.accept()
 print(f"Connected by {addr}")
 
@@ -32,7 +32,7 @@ payload_size = struct.calcsize("!I")
 # === CSV setup ===
 csv_file = open(CSV_FILE, 'w', newline='')
 csv_writer = csv.writer(csv_file)
-#csv_writer.writerow(['timestamp', 'camera_id', 'image', 'steering_angle'])
+csv_writer.writerow(['timestamp', 'camera_id', 'image', 'mapped_value'])
 
 frame_counter = 0
 
@@ -61,31 +61,40 @@ while True:
 
                 # -- INTEGRATED NEW CODE --
         payload = pickle.loads(frame_data)
-        frames = payload["frames"]
+        frames = [cv2.imdecode(f, cv2.IMREAD_COLOR) if f is not None else None for f in payload["frames"]]
         mapped_value = payload["mapped_value"]
 
         resized = [cv2.resize(f, (320, 240)) if f is not None else np.zeros((240, 320, 3), np.uint8) for f in frames]
         combined = np.hstack(resized) 
 
+        #Print to the stream the state of data collection via actuation of CH3
+        capturing = payload.get("capturing", False)
+
+        if capturing:
+            cv2.putText(combined, "CAPTURING", (20,40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+        else:
+            cv2.putText(combined, "PAUSED", (20,40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
         # Display
         cv2.imshow('Camera Stream', combined)
 
-      # Save images + CSV
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        
+        if capturing:
+            # Save images + CSV
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
 
-        for cam_id, frame in enumerate(resized):
-            # Using the actual angle from the payload
-            angle = mapped_value 
-            img_filename = f"centre_{timestamp}.jpg" #cam{cam_id}_{timestamp}.jpg
-            img_path = os.path.join(OUTPUT_DIR, img_filename)
-            cv2.imwrite(img_path, frame)
-            csv_writer.writerow([timestamp, cam_id, img_filename, angle])
+            for cam_id, frame in enumerate(resized):
+                # Using the actual angle from the payload
+                angle = mapped_value 
+                img_filename = f"centre_{timestamp}.jpg" #cam{cam_id}_{timestamp}.jpg
+                img_path = os.path.join(OUTPUT_DIR, img_filename)
+                cv2.imwrite(img_path, frame)
+                csv_writer.writerow([timestamp, cam_id, img_filename, angle])
 
-            csv_file.flush()
+                csv_file.flush()
 
-            print(f"[{frame_counter}] Saved {img_filename} with angle {angle}")
+                print(f"[{frame_counter}] Saved {img_filename} with angle {angle}")
 
-        frame_counter += 1
+            frame_counter += 1
 
         # Press ESC to stop
         if cv2.waitKey(1) & 0xFF == 27:
