@@ -9,7 +9,7 @@ import threading
 SERVER_IP = '192.168.0.228'
 PORT = 9999
 cam_indexes = [0]
-SERIAL_PORT = '/dev/ttyUSB0'  # Change to /dev/ttyACM0 if needed
+SERIAL_PORT = '/dev/ttyACM0'  # Change to /dev/ttyACM0 if needed or ttyUSB0
 BAUD_RATE = 9600
 
 # === Serial Setup ===
@@ -52,7 +52,7 @@ reader_thread = threading.Thread(target=serial_reader, daemon=True)
 reader_thread.start()
 
 # === Camera Setup ===
-cams = [cv2.VideoCapture(i) for i in cam_indexes]
+cams = [cv2.VideoCapture(i, cv2.CAP_V4L2) for i in cam_indexes]
 for cam in cams:
     cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -69,18 +69,21 @@ try:
     capturing = False
 
     while True:
-        frames = []
+        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
+        encoded_frames = []
         for cam in cams:
             ret, frame = cam.read()
-            if not ret:
-                frame = None
-            frames.append(frame)
+            if ret and frame is not None:
+                _, frame_encoded = cv2.imencode('.jpg', frame, encode_param)
+                encoded_frames.append(frame_encoded)
+            else:
+                encoded_frames.append(None)
 
         # === Grab latest RC value from Arduino ===
         with serial_lock:
             mapped_value = latest_value
             ch3 = latest_ch3
-            
+
         print(f"DEBUG: angle={mapped_value}, ch3={ch3}")
         # === Detecting rising edge ===
         if ch3 == 1 and prev_ch3 == 0:
@@ -90,7 +93,7 @@ try:
 
         # === Package frames + mapped value ===
         payload = {
-            "frames": frames,
+            "frames": encoded_frames,
             "mapped_value": mapped_value,  # -1.0 to 1.0 from Arduino
             "capturing": capturing
         }

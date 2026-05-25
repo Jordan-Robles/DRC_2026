@@ -61,7 +61,7 @@ while True:
 
                 # -- INTEGRATED NEW CODE --
         payload = pickle.loads(frame_data)
-        frames = payload["frames"]
+        frames = [cv2.imdecode(f, cv2.IMREAD_COLOR) if f is not None else None for f in payload["frames"]]
         mapped_value = payload["mapped_value"]
 
         resized = [cv2.resize(f, (320, 240)) if f is not None else np.zeros((240, 320, 3), np.uint8) for f in frames]
