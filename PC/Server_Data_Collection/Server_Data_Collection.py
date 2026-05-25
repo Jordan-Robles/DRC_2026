@@ -67,10 +67,17 @@ while True:
         resized = [cv2.resize(f, (320, 240)) if f is not None else np.zeros((240, 320, 3), np.uint8) for f in frames]
         combined = np.hstack(resized) 
 
+        #Print to the stream the state of data collection via actuation of CH3
+        capturing = payload.get("capturing", False)
+
+        if capturing:
+            cv2.putText(combined, "CAPTURING", (20,40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+        else:
+            cv2.putText(combined, "PAUSED", (20,40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
         # Display
         cv2.imshow('Camera Stream', combined)
 
-        capturing = payload.get("capturing", False)
+        
         if capturing:
             # Save images + CSV
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')

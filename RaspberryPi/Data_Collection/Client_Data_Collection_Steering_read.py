@@ -86,7 +86,8 @@ try:
 
         print(f"DEBUG: angle={mapped_value}, ch3={ch3}")
         # === Detecting rising edge ===
-        if ch3 == 1 and prev_ch3 == 0:
+        new_state = (ch3 == 1)
+        if capturing != new_state:
             capturing = not capturing
             print(f"Capture {'STARTED' if capturing else 'PAUSED'}")
         prev_ch3 = ch3
