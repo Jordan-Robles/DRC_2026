@@ -7,7 +7,7 @@ import time
 import sys
 
 # === CONFIG ===
-LAPTOP_IP = '172.20.10.2'  # Replace with your laptop IP
+LAPTOP_IP = '192.168.0.228'  # Replace with your laptop IP
 PORT = 9999
 SERIAL_PORT = '/dev/ttyUSB0'  # or '/dev/ttyACM0'
 BAUDRATE = 9600

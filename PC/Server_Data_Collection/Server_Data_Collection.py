@@ -17,12 +17,12 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 CAPTURE_DELAY = 0.1  #Delay between frames
 
 # === Socket setup ===
-HOST = '0.0.0.0'
 PORT = 9999
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.bind((HOST, PORT))
+s.bind(('', PORT))
 s.listen(1)
+print(f"Server started. Waiting for Raspberry Pi to connect on port {PORT}...")
 conn, addr = s.accept()
 print(f"Connected by {addr}")
 

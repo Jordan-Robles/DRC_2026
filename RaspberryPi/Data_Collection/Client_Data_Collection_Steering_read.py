@@ -6,7 +6,7 @@ import serial
 import threading
 
 # === Config ===
-SERVER_IP = '192.168.0.225'
+SERVER_IP = '192.168.0.228'
 PORT = 9999
 cam_indexes = [0]
 SERIAL_PORT = '/dev/ttyUSB0'  # Change to /dev/ttyACM0 if needed
@@ -80,7 +80,8 @@ try:
         with serial_lock:
             mapped_value = latest_value
             ch3 = latest_ch3
-
+            
+        print(f"DEBUG: angle={mapped_value}, ch3={ch3}")
         # === Detecting rising edge ===
         if ch3 == 1 and prev_ch3 == 0:
             capturing = not capturing
