@@ -566,12 +566,12 @@ DEF OMNI_WHEELS Robot {
     }
 
     Camera {
-      translation 0 0 0.4
-      rotation 0 1 0 1.5708
-      fieldOfView 3.14
-      width 640
-      height 640
-      projection "spherical"
+      translation 0 0 0.252
+      rotation 0 1 0 0.2618
+      name "camera"
+      width 1280
+      height 720
+      fieldOfView 1.0472
     }
 
     # Chassis body - 248mm diameter, 50mm height
