@@ -4,23 +4,24 @@ import pickle
 import struct
 import numpy as np
 from keras.models import load_model
-from keras.models import load_model
 from keras.losses import MeanSquaredError
 from keras.optimizers import Adam
+from keras.layers import BatchNormalization
 from Colour_filters import ColourFilter
 
 
 
 # === CONFIG ===
 PORT = 9999  
-MODEL_PATH = r'C:\Users\jorda\DRC_2026\DRC_2026\Trained_Models\model_DRC_2026Test_imgPro.h5'#r'C:\Users\jorda\DRC\DRC_Code1\Course\model.h5' #r'C:\Users\jorda\DRC\DRC_Code1\model_DRC_V2.h5' 
+MODEL_PATH = r'C:\Users\jorda\DRC_2026\DRC_2026\Trained_Models\Black_white\model_DRC_2026_BW_V2.h5'#r'C:\Users\jorda\DRC\DRC_Code1\Course\model.h5' #r'C:\Users\jorda\DRC\DRC_Code1\model_DRC_V2.h5' 
+#MODEL_PATH = r'C:\Users\jorda\DRC_2026\DRC_2026\Trained_Models\model_DRC_2026_V3.h5'
 # === Load the model ===
 print("Loading model...")
 model = load_model(MODEL_PATH, compile=False)  # Do not auto-load 'mse'
 print("Model loaded.")
 
 # === Recompile model with the same loss & optimizer ===
-model.compile(loss=MeanSquaredError(), optimizer=Adam(learning_rate=1e-3)) #1e-4
+model.compile(loss=MeanSquaredError(), optimizer=Adam(learning_rate=1e-3))
 print("Model compiled successfully.")
 
 

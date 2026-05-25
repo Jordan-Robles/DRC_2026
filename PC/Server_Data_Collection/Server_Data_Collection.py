@@ -10,7 +10,7 @@ from datetime import datetime
 import random
 
 # === CONFIG ===
-OUTPUT_DIR = r'C:\Users\jorda\DRC\Testing_Data\test6'
+OUTPUT_DIR = r'C:\Users\jorda\DRC\Testing_Data\Test6'
 CSV_FILE = os.path.join(OUTPUT_DIR, 'labels.csv')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 #NUM_IMAGES = 100  #Amount of images to capture
@@ -32,7 +32,7 @@ payload_size = struct.calcsize("!I")
 # === CSV setup ===
 csv_file = open(CSV_FILE, 'w', newline='')
 csv_writer = csv.writer(csv_file)
-#csv_writer.writerow(['timestamp', 'camera_id', 'image', 'steering_angle'])
+csv_writer.writerow(['timestamp', 'camera_id', 'image', 'mapped_value'])
 
 frame_counter = 0
 
@@ -70,22 +70,24 @@ while True:
         # Display
         cv2.imshow('Camera Stream', combined)
 
-      # Save images + CSV
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        capturing = payload.get("capturing", False)
+        if capturing:
+            # Save images + CSV
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
 
-        for cam_id, frame in enumerate(resized):
-            # Using the actual angle from the payload
-            angle = mapped_value 
-            img_filename = f"centre_{timestamp}.jpg" #cam{cam_id}_{timestamp}.jpg
-            img_path = os.path.join(OUTPUT_DIR, img_filename)
-            cv2.imwrite(img_path, frame)
-            csv_writer.writerow([timestamp, cam_id, img_filename, angle])
+            for cam_id, frame in enumerate(resized):
+                # Using the actual angle from the payload
+                angle = mapped_value 
+                img_filename = f"centre_{timestamp}.jpg" #cam{cam_id}_{timestamp}.jpg
+                img_path = os.path.join(OUTPUT_DIR, img_filename)
+                cv2.imwrite(img_path, frame)
+                csv_writer.writerow([timestamp, cam_id, img_filename, angle])
 
-            csv_file.flush()
+                csv_file.flush()
 
-            print(f"[{frame_counter}] Saved {img_filename} with angle {angle}")
+                print(f"[{frame_counter}] Saved {img_filename} with angle {angle}")
 
-        frame_counter += 1
+            frame_counter += 1
 
         # Press ESC to stop
         if cv2.waitKey(1) & 0xFF == 27:

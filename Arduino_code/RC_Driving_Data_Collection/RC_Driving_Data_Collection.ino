@@ -15,8 +15,9 @@ const int M3_IN1 = 12;
 const int M3_IN2 = 13;
 
 // --- RC Receiver input pins ---
-const int RC_STEERING_PIN = 3;
-const int RC_THROTTLE_PIN = 7;
+const int RC_STEERING_PIN = 3; // CH1
+const int RC_THROTTLE_PIN = 7; //CH2
+const int RC_CH3 = 11; //CH3
 
 // --- Config ---
 const int TURN_SCALE  = 255;   // max turning power
@@ -85,6 +86,7 @@ void setup() {
 
   pinMode(RC_STEERING_PIN, INPUT);
   pinMode(RC_THROTTLE_PIN, INPUT);
+  pinMode(RC_CH3, INPUT);
 
   Serial.begin(9600);
   Serial.println("RC Ready");
@@ -96,6 +98,7 @@ void loop() {
   // --- Read RC channels ---
   long steeringPWM = readPWM(RC_STEERING_PIN);
   long throttlePWM = readPWM(RC_THROTTLE_PIN);
+  long ch3PWM = readPWM(RC_CH3);
 
   float steeringVal = pwmToFloat(steeringPWM);   // -1.0 (left) to 1.0 (right)
   float throttleVal = pwmToFloat(throttlePWM);   // -1.0 (reverse) to 1.0 (forward)
@@ -118,6 +121,11 @@ void loop() {
   }
   setMotor(M3_EN, M3_IN1, M3_IN2, turnPower);
 
+  int ch3State = (ch3PWM >1700) ? 1 : 0;
   // --- Send steering to Pi ---
-  Serial.println(steeringVal, 4);
+  Serial.print(steeringVal, 4);
+  Serial.print(",");
+  Serial.println(ch3State);
+
+
 }

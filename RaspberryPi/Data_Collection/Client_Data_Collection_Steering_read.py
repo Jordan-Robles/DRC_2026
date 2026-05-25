@@ -17,11 +17,12 @@ ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
 
 # Thread-safe store for the latest RC value
 latest_value = 0.0
+latest_ch3 = 0
 serial_lock = threading.Lock()
 
 def serial_reader():
     """Background thread: reads mapped_value lines from Arduino."""
-    global latest_value
+    global latest_value, latest_ch3
     buffer = ""
     while True:
         try:
@@ -29,13 +30,17 @@ def serial_reader():
             if char == '\n':
                 line = buffer.strip()
                 buffer = ""
-                if line:
-                    try:
-                        val = float(line)
-                        with serial_lock:
-                            latest_value = val
-                    except ValueError:
-                        pass  # Ignore non-float lines (e.g. "RC Ready")
+                if ',' in line:
+                    parts = line.split(',')
+                    if len(parts) == 2:
+                        try:
+                            val = float(parts[0])
+                            ch3 = int(parts[1])
+                            with serial_lock:
+                                latest_value = val
+                                latest_ch3 = ch3
+                        except ValueError:
+                            pass  # Ignore non-float lines (e.g. "RC Ready")
             else:
                 buffer += char
         except Exception as e:
@@ -57,7 +62,12 @@ client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 client_socket.connect((SERVER_IP, PORT))
 print("Connected to server")
 
+
+
 try:
+    prev_ch3 = 0
+    capturing = False
+
     while True:
         frames = []
         for cam in cams:
@@ -69,11 +79,19 @@ try:
         # === Grab latest RC value from Arduino ===
         with serial_lock:
             mapped_value = latest_value
+            ch3 = latest_ch3
+
+        # === Detecting rising edge ===
+        if ch3 == 1 and prev_ch3 == 0:
+            capturing = not capturing
+            print(f"Capture {'STARTED' if capturing else 'PAUSED'}")
+        prev_ch3 = ch3
 
         # === Package frames + mapped value ===
         payload = {
             "frames": frames,
-            "mapped_value": mapped_value  # -1.0 to 1.0 from Arduino
+            "mapped_value": mapped_value,  # -1.0 to 1.0 from Arduino
+            "capturing": capturing
         }
 
         data = pickle.dumps(payload)
