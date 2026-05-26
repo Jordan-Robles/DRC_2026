@@ -20,7 +20,7 @@ from Image_processing.ColourFilter import img_preprocess
 
 
 #===read the data with pandas===
-datadir = r'C:\Users\jorda\Desktop\Code\Python\DRC\DRC_2026\Testing_Data\Test678' # Desktop C:\Users\jorda\Desktop\Code\Python\DRC_2025\DRC_2025\Testing_Data\Test45 || laptop C:\Users\jorda\DRC\Testing_Data\Test45
+datadir = r'C:\Users\jorda\Desktop\Code\Python\DRC\DRC_2026\Testing_Data\Test67' # Desktop C:\Users\jorda\Desktop\Code\Python\DRC_2025\DRC_2025\Testing_Data\Test45 || laptop C:\Users\jorda\DRC\Testing_Data\Test45
 csv_path = os.path.join(datadir, 'labels.csv')
 
 data = pd.read_csv(csv_path)
@@ -154,8 +154,8 @@ def random_augment(image, steering_angle):
         image = zoom(image)        
     if np.random.rand() < 0.5: 
         image = image_random_brightness(image)
-    # if np.random.rand() < 0.5: 
-    #     image, steering_angle = image_random_flip(image, steering_angle)
+    if np.random.rand() < 0.5: 
+        image, steering_angle = image_random_flip(image, steering_angle)
     return image, steering_angle
 
 
@@ -280,4 +280,4 @@ plt.xlabel('Epoch')
 
 plt.show()
 
-model.save('model_DRC_2026_garage_V1.h5')
+model.save('model_DRC_2026_garage_BW_V1.h5')

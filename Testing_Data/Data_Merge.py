@@ -3,11 +3,11 @@ import csv
 import shutil
 
 SOURCE_DIRS = [
-    Path(r"C:\Users\jorda\Desktop\Code\Python\DRC\DRC_2026\Testing_Data\Test67"),
-    Path(r"C:\Users\jorda\Desktop\Code\Python\DRC\DRC_2026\Testing_Data\Test8"),
+    Path(r"C:\Users\jorda\Desktop\Code\Python\DRC\DRC_2026\Testing_Data\Test6"),
+    Path(r"C:\Users\jorda\Desktop\Code\Python\DRC\DRC_2026\Testing_Data\Test7"),
 ]
 
-OUTPUT_DIR = Path(r"C:\Users\jorda\Desktop\Code\Python\DRC\DRC_2026\Testing_Data\Test678")
+OUTPUT_DIR = Path(r"C:\Users\jorda\Desktop\Code\Python\DRC\DRC_2026\Testing_Data\Test67")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 output_csv = OUTPUT_DIR / "labels.csv"
