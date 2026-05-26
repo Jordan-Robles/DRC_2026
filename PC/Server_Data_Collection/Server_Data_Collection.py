@@ -10,7 +10,7 @@ from datetime import datetime
 import random
 
 # === CONFIG ===
-OUTPUT_DIR = r'C:\Users\jorda\DRC\Testing_Data\Test6'
+OUTPUT_DIR = r'C:\Users\jorda\DRC_2026\DRC_2026\Testing_Data\Test8'
 CSV_FILE = os.path.join(OUTPUT_DIR, 'labels.csv')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 #NUM_IMAGES = 100  #Amount of images to capture

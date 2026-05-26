@@ -70,7 +70,7 @@ if __name__ == "__main__":
     # csv_file = r"C:\Users\jorda\Desktop\Code\Python\DRC_2025\DRC_2025\Testing_Data\Test45\labels.csv"
     # img_folder = r"C:\Users\jorda\Desktop\Code\Python\DRC_2025\DRC_2025\Testing_Data\Test45"
 
-    csv_file = r"C:\Users\jorda\Desktop\Code\Python\DRC\DRC_2026\Testing_Data\Test678\labels.csv" 
-    img_folder = r"C:\Users\jorda\Desktop\Code\Python\DRC\DRC_2026\Testing_Data\Test678"
+    csv_file = r"C:\Users\jorda\DRC_2026\DRC_2026\Testing_Data\Test6\labels.csv" 
+    img_folder = r"C:\Users\jorda\DRC_2026\DRC_2026\Testing_Data\Test6"
     
     browse_images(csv_file, img_folder, white_output=True)
