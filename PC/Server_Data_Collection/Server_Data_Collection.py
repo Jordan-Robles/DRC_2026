@@ -14,7 +14,7 @@ OUTPUT_DIR = r'C:\Users\jorda\DRC\Testing_Data\Test6'
 CSV_FILE = os.path.join(OUTPUT_DIR, 'labels.csv')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 #NUM_IMAGES = 100  #Amount of images to capture
-CAPTURE_DELAY = 0.1  #Delay between frames
+#CAPTURE_DELAY = 0.1  #Delay between frames
 
 # === Socket setup ===
 PORT = 9999
@@ -101,7 +101,7 @@ while True:
             print("ESC pressed, stopping capture.")
             break
 
-        time.sleep(CAPTURE_DELAY)
+        #time.sleep(CAPTURE_DELAY)
 
     except Exception as e:
         print(f"Error: {e}")

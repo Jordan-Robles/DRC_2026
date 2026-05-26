@@ -16,7 +16,7 @@ import ntpath #used to delete the path
 import random
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from Colour_filters.ColourFilter import img_preprocess
+from Image_processing.ColourFilter import img_preprocess
 
 
 #===read the data with pandas===

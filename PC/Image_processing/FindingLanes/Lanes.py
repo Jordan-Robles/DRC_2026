@@ -1,6 +1,5 @@
 import cv2
 import numpy as np
-#import matplotlib.pyplot as plt
 
 def make_coordinates(image, line_parameters): # function to convert slope and intercept into coordinates for drawing lines
     slope, intercept = line_parameters
@@ -50,28 +49,31 @@ def region_of_interest(image): # function to define a region of interest in the 
     masked_image = cv2.bitwise_and( image, mask) # does a bnitwise AND operation between the image and the mask, keeping only the area inside the triangle
     return masked_image
 
-#image = cv2.imread('test_image.jpg') # reads the image and returns its a multidimensional numpy array
-#lane_image =np.copy(image)
-#canny_image = canny(lane_image)
-#cropped_image = region_of_interest(canny_image)
-#lines = cv2.HoughLinesP(cropped_image, 2, np.pi/180, 100, np.array([]), minLineLength=40, maxLineGap=5) #2nd parameter is the resolution of the accumulator in pixels, 3rd parameter is the angle resolution in radians, 4th parameter is the threshold for the number of votes to consider a line
-#averaged_lines = average_slope_intercept(lane_image, lines) # function to average the slope and intercept of the detected lines
-#line_image = display_lines(lane_image, averaged_lines) # function to draw the averaged lines on a blank image
-#combined_image = cv2.addWeighted(lane_image, 0.8, line_image, 1, 1) # combine the original image with the line image
-#cv2.imshow("result", combined_image) # display the image with the detected lines
-#cv2.waitKey(0)
+imagePath = r'C:\Users\jorda\Desktop\Code\Python\DRC\DRC_2026\PC\Image_processing\FindingLanes\test_image.jpg'
+image = cv2.imread(imagePath) # reads the image and returns its a multidimensional numpy array
+lane_image =np.copy(image)
+canny_image = canny(lane_image)
+cropped_image = region_of_interest(canny_image)
+lines = cv2.HoughLinesP(cropped_image, 2, np.pi/180, 100, np.array([]), minLineLength=40, maxLineGap=5) #2nd parameter is the resolution of the accumulator in pixels, 3rd parameter is the angle resolution in radians, 4th parameter is the threshold for the number of votes to consider a line
+averaged_lines = average_slope_intercept(lane_image, lines) # function to average the slope and intercept of the detected lines
+line_image = display_lines(lane_image, averaged_lines) # function to draw the averaged lines on a blank image
+combined_image = cv2.addWeighted(lane_image, 0.8, line_image, 1, 1) # combine the original image with the line image
+cv2.imshow("result", combined_image) # display the image with the detected lines
+cv2.waitKey(0)
 
-cap = cv2.VideoCapture("test2.mp4") # open the video file
-while(cap.isOpened()): # check if the video file is opened
-    _, frame = cap.read()
-    canny_image = canny(frame)
-    cropped_image = region_of_interest(canny_image)
-    lines = cv2.HoughLinesP(cropped_image, 2, np.pi/180, 100, np.array([]), minLineLength=40, maxLineGap=5) #2nd parameter is the resolution of the accumulator in pixels, 3rd parameter is the angle resolution in radians, 4th parameter is the threshold for the number of votes to consider a line
-    averaged_lines = average_slope_intercept(frame, lines) # function to average the slope and intercept of the detected lines
-    line_image = display_lines(frame, averaged_lines) # function to draw the averaged lines on a blank image
-    combined_image = cv2.addWeighted(frame, 0.8, line_image, 1, 1) # combine the original image with the line image
-    cv2.imshow("result", combined_image) # display the image with the detected lines
-    if cv2.waitKey(1) == ord('q'): # wait for 1 millisecond before displaying the next frame
-        break
-cap.release() # release the video capture object
-cv2.destroyAllWindows() # close all OpenCV windows
+
+# videoPath = r'C:\Users\jorda\Desktop\Code\Python\DRC\DRC_2026\PC\Image_processing\FindingLanes\test2.mp4'
+# cap = cv2.VideoCapture(videoPath) # open the video file
+# while(cap.isOpened()): # check if the video file is opened
+#     _, frame = cap.read()
+#     canny_image = canny(frame)
+#     cropped_image = region_of_interest(canny_image)
+#     lines = cv2.HoughLinesP(cropped_image, 2, np.pi/180, 100, np.array([]), minLineLength=40, maxLineGap=5) #2nd parameter is the resolution of the accumulator in pixels, 3rd parameter is the angle resolution in radians, 4th parameter is the threshold for the number of votes to consider a line
+#     averaged_lines = average_slope_intercept(frame, lines) # function to average the slope and intercept of the detected lines
+#     line_image = display_lines(frame, averaged_lines) # function to draw the averaged lines on a blank image
+#     combined_image = cv2.addWeighted(frame, 0.8, line_image, 1, 1) # combine the original image with the line image
+#     cv2.imshow("result", combined_image) # display the image with the detected lines
+#     if cv2.waitKey(1) == ord('q'): # wait for 1 millisecond before displaying the next frame
+#         break
+# cap.release() # release the video capture object
+# cv2.destroyAllWindows() # close all OpenCV windows

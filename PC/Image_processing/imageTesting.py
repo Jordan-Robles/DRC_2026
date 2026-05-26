@@ -28,7 +28,7 @@ def browse_images(csv_path, image_folder, white_output=False, delay_ms=50):
             continue
         
         # Apply preprocessing
-        processed = img_preprocess(original, blackWhite=white_output)
+        processed = img_preprocess(original, blackWhite =True, lanes= True)
         
         original_resized = cv2.resize(original, (200, 66))
         # Stack side by side for comparison
@@ -67,7 +67,10 @@ def browse_images(csv_path, image_folder, white_output=False, delay_ms=50):
 
 if __name__ == "__main__":
     # Example usage - adjust paths to your data
-    csv_file = r"C:\Users\jorda\Desktop\Code\Python\DRC_2025\DRC_2025\Testing_Data\Test45\labels.csv"
-    img_folder = r"C:\Users\jorda\Desktop\Code\Python\DRC_2025\DRC_2025\Testing_Data\Test45"
+    # csv_file = r"C:\Users\jorda\Desktop\Code\Python\DRC_2025\DRC_2025\Testing_Data\Test45\labels.csv"
+    # img_folder = r"C:\Users\jorda\Desktop\Code\Python\DRC_2025\DRC_2025\Testing_Data\Test45"
+
+    csv_file = r"C:\Users\jorda\Desktop\Code\Python\DRC\DRC_2026\Testing_Data\Test678\labels.csv" 
+    img_folder = r"C:\Users\jorda\Desktop\Code\Python\DRC\DRC_2026\Testing_Data\Test678"
     
     browse_images(csv_file, img_folder, white_output=True)
