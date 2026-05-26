@@ -8,7 +8,7 @@ import threading
 # === Config ===
 SERVER_IP = '192.168.0.228'
 PORT = 9999
-cam_indexes = [0]
+cam_indexes = [0, 2]
 SERIAL_PORT = '/dev/ttyACM0'  # Change to /dev/ttyACM0 if needed or ttyUSB0
 BAUD_RATE = 9600
 

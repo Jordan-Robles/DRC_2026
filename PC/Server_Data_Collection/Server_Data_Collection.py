@@ -82,17 +82,37 @@ while True:
             # Save images + CSV
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
 
-            for cam_id, frame in enumerate(resized):
-                # Using the actual angle from the payload
+            # Determine naming based on how many valid frames we received
+            valid_frames = [f for f in frames if f is not None]
+            num_cams = len(valid_frames)
+            
+            # Map index to camera position depending on camera count
+            if num_cams == 1:
+                labels = ["center"]
+            elif num_cams >= 3:
+                # Assuming index 0=center, 1=right, 2=left (or adjust to match your physical setup)
+                labels = ["center", "right", "left"]
+            else:
+                # Fallback for 2 cameras just in case
+                labels = ["cam0", "cam1"]
+
+            for cam_id, frame in enumerate(valid_frames):
+                if cam_id < len(labels):
+                    cam_label = labels[cam_id]
+                else:
+                    cam_label = f"cam{cam_id}"
+
                 angle = mapped_value 
-                img_filename = f"centre_{timestamp}.jpg" #cam{cam_id}_{timestamp}.jpg
+                img_filename = f"{cam_label}_{timestamp}.jpg"
                 img_path = os.path.join(OUTPUT_DIR, img_filename)
-                cv2.imwrite(img_path, frame)
-                csv_writer.writerow([timestamp, cam_id, img_filename, angle])
+                
+                # Check that the frame is actually valid before saving
+                if frame is not None:
+                    cv2.imwrite(img_path, frame)
+                    csv_writer.writerow([timestamp, cam_label, img_filename, angle])
+                    print(f"[{frame_counter}] Saved {img_filename} with angle {angle}")
 
-                csv_file.flush()
-
-                print(f"[{frame_counter}] Saved {img_filename} with angle {angle}")
+            csv_file.flush()
 
             frame_counter += 1
 

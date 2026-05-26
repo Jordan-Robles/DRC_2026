@@ -66,7 +66,7 @@ try:
             continue
 
         # Show live stream
-        userFrame = ColourFilter.img_preprocess(frame)
+        userFrame = ColourFilter.img_preprocess(frame, blackWhite = True)
         resized_frame = cv2.resize(userFrame, (800, 264))
         cv2.imshow("Live Stream", resized_frame)
         key = cv2.waitKey(1) & 0xFF
@@ -75,7 +75,7 @@ try:
             break
         
         # Predict steering angle
-        input_image = ColourFilter.img_preprocess(frame)
+        input_image = ColourFilter.img_preprocess(frame, blackWhite= True)
         input_image = np.expand_dims(input_image, axis=0)
         steering_angle = float(model.predict(input_image)[0][0])
         print(f"Predicted Steering: {steering_angle:.2f}")
