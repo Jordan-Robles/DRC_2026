@@ -3,7 +3,9 @@ import numpy as np
 #
 
 def img_preprocess(img,blackWhite=False): #pre-process our data to be used inside our model
-    img = img[60:,: ] #crops out the parts of the image that isnt in the range of 60:135, hence keeping only the road 
+    img = img[60:,: ] #crops out the parts of the image that isnt in the range of 60:135, hence keeping only the road
+
+    img = cv2.GaussianBlur(img, (5,5), 0)  
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV) #converts the image from RGB to HSV colour space, which is more suitable for colour detection
 
     # # Yellow mask
@@ -28,8 +30,12 @@ def img_preprocess(img,blackWhite=False): #pre-process our data to be used insid
     #Combine masks
     mask = cv2.bitwise_or(yellow_mask, blue_mask) #combines the two masks to create a single mask that highlights both yellow and blue lines
 
+    # noise reduction reommended by copilot
+    noise_kernel = np.ones((5,5), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, noise_kernel)
+
     # Morphological closing to close the gaps between the lines
-    kernel = np.ones((10,10), np.uint8)#use bigger kernel to connect bigger gaps
+    kernel = np.ones((12,12), np.uint8)#use bigger kernel to connect bigger gaps
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
     if blackWhite:
@@ -41,7 +47,7 @@ def img_preprocess(img,blackWhite=False): #pre-process our data to be used insid
         img = cv2.bitwise_and(img, img, mask=mask)
     
 
-    img = cv2.GaussianBlur(img, (3,3), 0)# smoothens the iamge and reduces noise. It works by using convultion
+    #img = cv2.GaussianBlur(img, (3,3), 0)# smoothens the iamge and reduces noise. It works by using convultion
     img = cv2.resize(img, (200, 66)) #reduces computational costs and is also used as the input size in teh nivida model
     img = img/255.0 #normalises the image
 

@@ -67,7 +67,8 @@ try:
 
         # Show live stream
         userFrame = ColourFilter.img_preprocess(frame)
-        cv2.imshow("Live Stream", userFrame)
+        resized_frame = cv2.resize(userFrame, (800, 264))
+        cv2.imshow("Live Stream", resized_frame)
         key = cv2.waitKey(1) & 0xFF
         if key == 27:  # ESC key
             print("ESC pressed. Exiting...")
