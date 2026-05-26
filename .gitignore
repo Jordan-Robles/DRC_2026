@@ -1,4 +1,5 @@
 .drc_wsl/
+.drc_gpu/
 .DRC/
 .vscode/
 pycache/

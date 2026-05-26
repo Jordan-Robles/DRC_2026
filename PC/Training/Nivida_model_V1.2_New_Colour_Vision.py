@@ -20,7 +20,7 @@ from Colour_filters.ColourFilter import img_preprocess
 
 
 #===read the data with pandas===
-datadir = r'C:\Users\jorda\Desktop\Code\Python\DRC_2025\DRC_2025\Testing_Data\Test4' # Desktop C:\Users\jorda\Desktop\Code\Python\DRC_2025\DRC_2025\Testing_Data\Test45 || laptop C:\Users\jorda\DRC\Testing_Data\Test45
+datadir = r'C:\Users\jorda\Desktop\Code\Python\DRC\DRC_2026\Testing_Data\Test678' # Desktop C:\Users\jorda\Desktop\Code\Python\DRC_2025\DRC_2025\Testing_Data\Test45 || laptop C:\Users\jorda\DRC\Testing_Data\Test45
 csv_path = os.path.join(datadir, 'labels.csv')
 
 data = pd.read_csv(csv_path)
@@ -109,7 +109,7 @@ def load_img_steering(datadir, df):
     
     return np.asarray(image_path), np.asarray(steering)
 
-image_paths, steerings = load_img_steering(r'C:\Users\jorda\Desktop\Code\Python\DRC_2025\DRC_2025\Testing_Data\Test45', data) # two arrays, 1 for images and other for array conataining each images corresponding steering angle
+image_paths, steerings = load_img_steering(datadir, data) # two arrays, 1 for images and other for array conataining each images corresponding steering angle
 
 X_train, X_valid, Y_train, Y_valid = train_test_split(image_paths, steerings, test_size = 0.2, random_state=6) #splits the data into training and validation 
 print('Training Samples: {}\nValid Samples: {}'. format(len(X_train), len(X_valid)))
@@ -141,10 +141,10 @@ def image_random_brightness(image):
     return image
 
 
-# def image_random_flip(image, steering_angle):
-#     image = cv2.flip(image, 1) #flips the image horizontally
-#     steering_angle = -steering_angle #steering anlge has to match the flipped image
-#     return image, steering_angle
+def image_random_flip(image, steering_angle):
+    image = cv2.flip(image, 1) #flips the image horizontally
+    steering_angle = -steering_angle #steering anlge has to match the flipped image
+    return image, steering_angle
 
 def random_augment(image, steering_angle):
     image = cv2.imread(image)
@@ -162,7 +162,7 @@ def random_augment(image, steering_angle):
 #image = image_paths[r'C:\Users\jorda\DRC\Testing_Data\Test5\centre_20250703_154513_666341.jpg'] #selects the image x to he used
 image = r'C:\Users\jorda\Desktop\Code\Python\DRC_2025\DRC_2025\Testing_Data\Test45\centre_20250703_154513_666341.jpg' #Desktop C:\Users\jorda\Desktop\Code\Python\DRC_2025\DRC_2025\Testing_Data\Test45\centre_20250703_154513_666341.jpg | C:\Users\jorda\DRC\Testing_Data\Test5\centre_20250703_154513_666341.jpg
 original_image = cv2.imread(image)
-preprocessed_image = img_preprocess(original_image)
+preprocessed_image = img_preprocess(original_image, blackWhite=True)
 
 fig, axis = plt.subplots(1,2, figsize = (15,10)) #creates the a figure with both original image and pre-processed next to each other
 fig.tight_layout() #ensures the image is formated and that the axis dont overlap
@@ -186,7 +186,7 @@ def batch_generator(image_paths, steering_angle, batch_size, istraining): #last 
                 im = cv2.imread(image_paths[random_index])# reads an iamge file from the path specified by img and loads it into a NumPy array (pixel data)
                 steering = steering_angle[random_index]
 
-            im = img_preprocess(im)
+            im = img_preprocess(im, blackWhite=True)
             batch_img.append(im)
             batch_steering.append(steering)
         yield (np.array(batch_img), np.asarray(batch_steering))
@@ -280,4 +280,4 @@ plt.xlabel('Epoch')
 
 plt.show()
 
-model.save('model_DRC_2026_gpu_test.h5')
+model.save('model_DRC_2026_garage_V1.h5')
