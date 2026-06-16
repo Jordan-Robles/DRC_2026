@@ -1,0 +1,188 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+
+WorldInfo {
+  info [
+    "Kiwi holonomic drive sim"
+    "Locked-rotation mode — robot translates only, never yaws"
+  ]
+  title "Kiwi Drive Arena"
+  basicTimeStep 16
+  coordinateSystem "ENU"
+}
+
+Viewpoint {
+  orientation -0.5773502691896258 0.5773502691896258 0.5773502691896258 2.0944
+  position 0 0 4.5
+  follow "kiwi_robot"
+  followType "None"
+}
+
+TexturedBackground {
+  texture "empty_office"
+}
+
+TexturedBackgroundLight {
+}
+
+# ── Floor ────────────────────────────────────────────────────────────────────
+RectangleArena {
+  floorSize 8 8
+  floorTileSize 1 1
+  floorAppearance PBRAppearance {
+    baseColor 0.18 0.18 0.18
+    roughness 0.9
+    metalness 0
+  }
+  wallHeight 0.05
+}
+
+# ── Kiwi Robot ───────────────────────────────────────────────────────────────
+# Geometry: equilateral triangle, wheel axes tangent to a circle of radius 0.09m
+# Wheel 0 (front):        0°  from +Y  → axis along X
+# Wheel 1 (rear-right): 120°          → axis at -60° from X
+# Wheel 2 (rear-left):  240°          → axis at +60° from X
+Robot {
+  name "kiwi_robot"
+  translation 0 0 0.05
+  rotation 0 0 1 0
+  children [
+
+    # ── Body ─────────────────────────────────────────────────────────────────
+    DEF BODY Shape {
+      appearance PBRAppearance {
+        baseColor 0.1 0.5 0.9
+        roughness 0.4
+        metalness 0.2
+      }
+      geometry Cylinder {
+        radius 0.10
+        height 0.06
+      }
+    }
+
+    # Direction indicator (small front nub — always points +Y in world frame)
+    DEF NOSE Transform {
+      translation 0 0.09 0.02
+      children [
+        Shape {
+          appearance PBRAppearance { baseColor 1 0.3 0.1 }
+          geometry Sphere { radius 0.02 }
+        }
+      ]
+    }
+
+    # ── Wheel 0 — front (90° from +X, i.e. along +Y axis) ───────────────────
+    DEF WHEEL0_JOINT HingeJoint {
+      jointParameters HingeJointParameters {
+        axis 1 0 0
+        anchor 0 0.09 0
+      }
+      device [
+        RotationalMotor {
+          name "wheel0"
+          maxVelocity 20
+          maxTorque 10
+        }
+        PositionSensor { name "wheel0_sensor" }
+      ]
+      endPoint DEF WHEEL0 Solid {
+        translation 0 0.09 0
+        rotation 1 0 0 1.5708
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor 0.15 0.15 0.15 }
+            geometry Cylinder { radius 0.025 height 0.018 }
+          }
+        ]
+        name "wheel0_solid"
+        boundingObject Cylinder { radius 0.025 height 0.018 }
+        physics Physics { density 200 }
+      }
+    }
+
+    # ── Wheel 1 — rear-right (210° from +Y → position at -120° from front) ──
+    DEF WHEEL1_JOINT HingeJoint {
+      jointParameters HingeJointParameters {
+        axis -0.866025 -0.5 0
+        anchor -0.07794 -0.045 0
+      }
+      device [
+        RotationalMotor {
+          name "wheel1"
+          maxVelocity 20
+          maxTorque 10
+        }
+        PositionSensor { name "wheel1_sensor" }
+      ]
+      endPoint DEF WHEEL1 Solid {
+        translation -0.07794 -0.045 0
+        rotation -0.866025 -0.5 0 1.5708
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor 0.15 0.15 0.15 }
+            geometry Cylinder { radius 0.025 height 0.018 }
+          }
+        ]
+        name "wheel1_solid"
+        boundingObject Cylinder { radius 0.025 height 0.018 }
+        physics Physics { density 200 }
+      }
+    }
+
+    # ── Wheel 2 — rear-left (330° from +Y → position at +120° from front) ───
+    DEF WHEEL2_JOINT HingeJoint {
+      jointParameters HingeJointParameters {
+        axis 0.866025 -0.5 0
+        anchor 0.07794 -0.045 0
+      }
+      device [
+        RotationalMotor {
+          name "wheel2"
+          maxVelocity 20
+          maxTorque 10
+        }
+        PositionSensor { name "wheel2_sensor" }
+      ]
+      endPoint DEF WHEEL2 Solid {
+        translation 0.07794 -0.045 0
+        rotation 0.866025 -0.5 0 1.5708
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor 0.15 0.15 0.15 }
+            geometry Cylinder { radius 0.025 height 0.018 }
+          }
+        ]
+        name "wheel2_solid"
+        boundingObject Cylinder { radius 0.025 height 0.018 }
+        physics Physics { density 200 }
+      }
+    }
+
+    # ── GPS (useful later for autonomous mode) ────────────────────────────────
+    GPS {
+      name "gps"
+      type "satellite"
+    }
+
+    # ── Gyro ──────────────────────────────────────────────────────────────────
+    Gyro {
+      name "gyro"
+    }
+
+  ]
+
+  # Body bounding object (cylinder for physics)
+  boundingObject USE BODY
+
+  physics Physics {
+    density -1
+    mass 1.2
+    centerOfMass [ 0 0 0 ]
+  }
+
+  controller "kiwi_controller"
+}

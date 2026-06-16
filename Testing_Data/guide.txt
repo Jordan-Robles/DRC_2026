@@ -1,5 +1,0 @@
-Data sets Test4 - 5 are f teh actual track in brisbane
-
-Data set 6 is garage going forward and backwards
-
-Data set 7 is garage going forward and backwards with recovery
