@@ -553,15 +553,24 @@ def render_topdown(surface, rx, ry, heading, map_data, font):
 # MOTION COMMAND  ← swap out this function body for autonomous mode
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Module-level cache so driver state is never reset mid-run
+_driver_mod_cache = None
+
 def get_motion_command(robot_state, camera_view_data):
-    """
-    Return (vx, vy, debug_frame) — debug_frame is passed to render_debug_panel.
-    Autonomous logic lives in driver.py — swap strategies by replacing that file.
-    """
-    import Holonomic_Drive.new_kiwi_sim.driver as _driver_mod
-    return _driver_mod.get_motion_command(robot_state, camera_view_data)
+    global _driver_mod_cache
+    if _driver_mod_cache is None:
+        try:
+            import Holonomic_Drive.new_kiwi_sim.driverV2 as _m
+            _driver_mod_cache = _m
+        except Exception:
+            import importlib.util, os
+            driver_path = os.path.join(os.path.dirname(__file__), "driverV2.py")
+            spec = importlib.util.spec_from_file_location("driverV2", driver_path)
+            _m = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(_m)
+            _driver_mod_cache = _m
 
-
+    return _driver_mod_cache.get_motion_command(robot_state, camera_view_data)
 # ─────────────────────────────────────────────────────────────────────────────
 # MAIN LOOP
 # ─────────────────────────────────────────────────────────────────────────────
