@@ -105,14 +105,14 @@ class drive:
         return mean_dx, mean_dy, count
     
 
-    def unit(dx, dy):
+    def unit(self, dx, dy):
         mag = math.hypot(dx, dy)
         if mag < 1e-6:
             return 0.0, 0.0
         return dx / mag, dy / mag
 
 
-    def normalise(vx, vy, speed):
+    def normalise(self, vx, vy, speed):
         mag = math.hypot(vx, vy)
         if mag < 1e-6:
             return 0.0, 0.0
@@ -123,52 +123,52 @@ class drive:
     # -----------------------------------------------
     def preprocess_frame(self, camera_view_data):
         img_rgb = camera_view_data.transpose(1, 0, 2)
-        img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
-        img_hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+        self.img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+        img_hsv = cv2.cvtColor(self.img_bgr, cv2.COLOR_BGR2HSV)
 
         img_h, img_w = img_hsv.shape[:2]
         self.cx, self.cy  = img_w / 2.0, img_h / 2.0
 
         # max distance from the image center to any corenr of the image
-        max_r = math.hypot(self.cx, self.cy)
+        self.max_r = math.hypot(self.cx, self.cy)
 
 
         self.yellow_mask = cv2.inRange(img_hsv,self.YELLOW_HSV_LOW, self.YELLOW_HSV_HIGH)
-        self.blue_mask = cv2.inRange(img_hsv,self.BLUE_HSV_LOW_HSV_LOW, self.BLUE_HSV_HIGH)
+        self.blue_mask = cv2.inRange(img_hsv,self.BLUE_HSV_LOW, self.BLUE_HSV_HIGH)
 
 
     # -----------------------------------------------
     # wall detection
     # -----------------------------------------------
-    def detect_lines(self, yellow_mask,):
+    def detect_lines(self):
         # ── Get line vectors ─────────────────────────────────────────────────────
-        self.ydx, ydy, y_count = self.wall_vector(self.yellow_mask, self.cx, self.cy, self.CENTRE_DEAD_ZONE_PX)
-        self.bdx, bdy, b_count = self.wall_vector(self.blue_mask,   self.cx, self.cy, self.CENTRE_DEAD_ZONE_PX)
+        self.ydx, self.ydy, self.y_count = self.wall_vector(self.yellow_mask, self.cx, self.cy, self.CENTRE_DEAD_ZONE_PX)
+        self.bdx, self.bdy, self.b_count = self.wall_vector(self.blue_mask,   self.cx, self.cy, self.CENTRE_DEAD_ZONE_PX)
 
-        self.have_yellow = y_count >= self.MIN_PIXELS
-        self.have_blue   = b_count >= self.MIN_PIXELS
+        self.have_yellow = self.y_count >= self.MIN_PIXELS
+        self.have_blue   = self.b_count >= self.MIN_PIXELS
         self.have_both   = self.have_yellow and self.have_blue
 
             # Update stored line directions whenever lines are clearly visible
         if self.have_yellow:
-            self.toward_yellow_x, self.toward_yellow_y = self.unit(self.ydx, ydy)
+            self.toward_yellow_x, self.toward_yellow_y = self.unit(self.ydx, self.ydy)
         if self.have_blue:
-            self.away_from_blue_x, self.away_from_blue_y = self.unit(-self.bdx, -bdy)
+            self.away_from_blue_x, self.away_from_blue_y = self.unit(-self.bdx, -self.bdy)
 
 
 
     def robot_heading(self, robot_state):
         manual_heading = robot_state.get('heading', 0.0)
-        rx = robot_state.get('x', 0.0)
-        ry = robot_state.get('y', 0.0)
+        self.rx = robot_state.get('x', 0.0)
+        self.ry = robot_state.get('y', 0.0)
 
         # ── Dynamic heading ──────────────────────────────────────────────────────
-        if _dynamic_heading is None:
-            _dynamic_heading = manual_heading
+        if self.dynamic_heading is None:
+            self.dynamic_heading = manual_heading
 
         if self.last_x is not None:
-            ddx = rx - self.last_x
-            ddy = ry - self.last_y
+            ddx = self.rx - self.last_x
+            ddy = self.ry - self.last_y
             dist = math.hypot(ddx, ddy)
             if dist > 0.5:
                 # Reset
@@ -179,7 +179,7 @@ class drive:
                 self.toward_yellow_y    = None
                 self.away_from_blue_x   = None
                 self.away_from_blue_y   = None
-                self.last_x, self.last_y    = rx, ry
+                self.last_x, self.last_y    =self.rx, self.ry
                 return 0.0, 0.0, None
             if dist > 1e-4:
                 travel = math.atan2(ddy, ddx)
@@ -201,7 +201,7 @@ class drive:
             'ydx': self.ydx, 'ydy': self.ydy, 'y_count': self.y_count,
             'bdx': self.bdx, 'bdy': self.bdy, 'b_count': self.b_count,
             'cmd_vx': self.vx,  'cmd_vy': self.vy,
-            'state':   self.state_label,
+            'state':   state_label,
             'heading': self.heading,
             'dead_zone': self.CENTRE_DEAD_ZONE_PX,
             'rx': self.rx, 'ry': self.ry,
@@ -352,3 +352,8 @@ class drive:
 
 
 
+_driver = drive()
+ 
+ 
+def get_motion_command(robot_state, camera_view_data):
+    return _driver.get_motion_command(robot_state, camera_view_data)
