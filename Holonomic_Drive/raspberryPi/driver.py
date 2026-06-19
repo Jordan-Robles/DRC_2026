@@ -1,13 +1,15 @@
 """
-Work in progress
-
-Consolidated the original driver.py into a proper state machine
-
+Ported over version of the driver class from the pygame sim
+this will be used in the actual robot
 """
 import numpy as np
 import math
 import cv2
+import serial   
+import time
+import sys
 from enum import Enum
+
 
 
 class State(Enum):
@@ -18,7 +20,6 @@ class State(Enum):
     CORNER_BLUE = 4
     OBJECT = 5 #Purple object detected
     ARROW = 6 # arrow detection
-    INVERSE = 7 # this is for the turn challenge where the front facing cameras will see the track inverted
 
 
 
@@ -77,6 +78,24 @@ class drive:
         self.toward_yellow_y = None
         self.away_from_blue_x = None
         self.away_from_blue_y = None
+    # -----------------------------------------------
+    #SERIAL COMMUNICATION
+    # -----------------------------------------------
+
+    def serial_steering(self, m1, m2, m3):
+        LAPTOP_IP = '192.168.0.228'  # Replace with your laptop IP
+        PORT = 9999
+        SERIAL_PORT = '/dev/ttyUSB0'  # or '/dev/ttyACM0'
+        BAUDRATE = 9600
+
+        try:
+            arduino = serial.Serial(SERIAL_PORT, BAUDRATE, timeout=1)
+            time.sleep(2)  # Wait for Arduino to initialize
+            print(f"Connected to Arduino on {SERIAL_PORT}")
+        except serial.SerialException as e:
+            print(f"Could not open serial port {SERIAL_PORT}: {e}")
+            sys.exit(1)
+
     # -----------------------------------------------
     #HELPERS
     # -----------------------------------------------
@@ -221,11 +240,6 @@ class drive:
             raw_vy += self.fwd_y * (self.MIN_FORWARD - fwd_component)
  
         return self.normalise(raw_vx, raw_vy, self.SPEED)
-
-    def track_inverse(self):
-        if(self.have_both):
-            
-
     
     def compute_center_command(self):
         mid_dx = (self.ydx + self.bdx) / 2.0
@@ -300,8 +314,6 @@ class drive:
                 if self.search_frames_left <= 0:
                     self.state = State.CORNER_YELLOW
             # else: already CORNER_YELLOW -> stay committed
-
-        elif self.
         else:  # have_blue and not have_yellow
             if self.state in (State.CENTER, State.SEARCH_BLUE, State.CORNER_YELLOW):
                 self.state = State.SEARCH_YELLOW
