@@ -17,8 +17,8 @@ class State(Enum):
     SEARCH_BLUE = 3 # Have yellow, search for yellow
     CORNER_BLUE = 4
     OBJECT = 5 #Purple object detected
-    ARROW = 6 # arrow detection
-    INVERSE = 7 # this is for the turn challenge where the front facing cameras will see the track inverted
+    TURN_CHALLENGE = 6 # arrow detection
+    
 
 
 
@@ -53,6 +53,8 @@ class drive:
         # Nudge strength when searching for lost wall
         self.SEARCH_NUDGE = 1 # from 0.25
 
+        self.ARROW_DIRECTION = "Right"
+
 
         # -----------------------------------------------
         # Colour Params
@@ -77,6 +79,7 @@ class drive:
         self.toward_yellow_y = None
         self.away_from_blue_x = None
         self.away_from_blue_y = None
+
     # -----------------------------------------------
     #HELPERS
     # -----------------------------------------------
@@ -119,6 +122,18 @@ class drive:
             return 0.0, 0.0
         return vx / mag * speed, vy / mag * speed
 
+    def line_side(self):
+        self.forward_x, self.forward_y = 0, 1  # or your robot heading
+        cross = self.forward_x * self.dy - self.forward_y *self.dx
+
+        if cross > 0:
+            return "left"
+        elif cross < 0:
+            return "right"
+        else:
+            return "center"
+    
+
     # -----------------------------------------------
     #preprocess
     # -----------------------------------------------
@@ -150,13 +165,35 @@ class drive:
         self.have_blue   = self.b_count >= self.MIN_PIXELS
         self.have_both   = self.have_yellow and self.have_blue
 
-
             # Update stored line directions whenever lines are clearly visible
         if self.have_yellow:
             self.toward_yellow_x, self.toward_yellow_y = self.unit(self.ydx, self.ydy)
         if self.have_blue:
             self.away_from_blue_x, self.away_from_blue_y = self.unit(-self.bdx, -self.bdy)
 
+    def signed_side(self, dx, dy):
+        return self.fwd_x * dy - self.fwd_y * dx
+    
+    def orientation_status(self):
+        """
+        True  = correctly oriented (yellow left / blue right, where visible)
+        False = at least one visible wall is on the wrong side
+        None  = not enough info to judge (neither wall visible)
+        """
+        yellow_left = None
+        blue_right = None
+
+        if self.have_yellow:
+            yellow_left = self.signed_side(self.ydx, self.ydy) < 0
+
+        if self.have_blue:
+            blue_right = self.signed_side(self.bdx, self.bdy) > 0
+
+        if yellow_left is None and blue_right is None:
+            return None
+        if yellow_left is False or blue_right is False:
+            return False
+        return True
 
 
     def robot_heading(self, robot_state):
@@ -221,11 +258,6 @@ class drive:
             raw_vy += self.fwd_y * (self.MIN_FORWARD - fwd_component)
  
         return self.normalise(raw_vx, raw_vy, self.SPEED)
-
-    def track_inverse(self):
-        if(self.have_both):
-            
-
     
     def compute_center_command(self):
         mid_dx = (self.ydx + self.bdx) / 2.0
@@ -251,7 +283,6 @@ class drive:
 
         raw_vx = self.fwd_x + away_x * (standoff_error * self.LATERAL_GAIN + self.SEARCH_NUDGE)
         raw_vy = self.fwd_y + away_y * (standoff_error * self.LATERAL_GAIN + self.SEARCH_NUDGE)
-
 
         gain = standoff_error * self.LATERAL_GAIN
         if searching:
@@ -287,11 +318,23 @@ class drive:
     #Updating State machine
     # -----------------------------------------------
     def update_state(self):
+        orientation = self.orientation_status()
+
+        if self.state == State.TURN_CHALLENGE:
+            if orientation is True:
+                self.state = State.CENTER
+                self.search_frames_left = 0
+            return  # stay in WRONG_WAY until orientation flips back
+
+        if orientation is False:
+            self.state = State.TURN_CHALLENGE
+            return
+
         if self.have_both:
             self.state = State.CENTER
             self.search_frames_left = 0
-            
-        elif self.have_yellow:  # and not have_blue
+
+        elif self.have_yellow:
             if self.state in (State.CENTER, State.SEARCH_YELLOW, State.CORNER_BLUE):
                 self.state = State.SEARCH_BLUE
                 self.search_frames_left = self.SEARCH_TIMEOUT_FRAMES
@@ -299,10 +342,8 @@ class drive:
                 self.search_frames_left -= 1
                 if self.search_frames_left <= 0:
                     self.state = State.CORNER_YELLOW
-            # else: already CORNER_YELLOW -> stay committed
 
-        elif self.
-        else:  # have_blue and not have_yellow
+        else:
             if self.state in (State.CENTER, State.SEARCH_BLUE, State.CORNER_YELLOW):
                 self.state = State.SEARCH_YELLOW
                 self.search_frames_left = self.SEARCH_TIMEOUT_FRAMES
@@ -310,9 +351,6 @@ class drive:
                 self.search_frames_left -= 1
                 if self.search_frames_left <= 0:
                     self.state = State.CORNER_BLUE
-            # else: already CORNER_BLUE -> stay committed
-
-        
     # -----------------------------------------------
     #State machine
     # -----------------------------------------------
@@ -352,8 +390,11 @@ class drive:
                 vx, vy = self.compute_blue_bias_command(searching=False)
             case State.OBJECT:
                 vx, vy = self.compute_object_command()
-            case State.ARROW:
-                vx, vy = self.compute_arrow_command()
+            case State.TURN_CHALLENGE:
+                if self.ARROW_DIRECTION == "Right":
+                    vx, vy = self.compute_yellow_bias_command(searching=True)
+                elif self.ARROW_DIRECTION == "Left":
+                    vx, vy = self.compute_blue_bias_command(searching=True)
 
         self.vx, self.vy = vx, vy
         self.last_vx, self.last_vy = vx, vy
