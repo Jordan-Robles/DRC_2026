@@ -1,9 +1,4 @@
-"""
-Work in progress
 
-Consolidated the original driver.py into a proper state machine
-
-"""
 import numpy as np
 import math
 import cv2
@@ -53,7 +48,9 @@ class drive:
         # Nudge strength when searching for lost wall
         self.SEARCH_NUDGE = 1 # from 0.25
 
-        self.ARROW_DIRECTION = "Right"
+        self.ARROW_DIRECTION = "Left"
+
+        self.arrow_active = False
 
 
         # -----------------------------------------------
@@ -151,7 +148,7 @@ class drive:
 
         self.yellow_mask = cv2.inRange(img_hsv,self.YELLOW_HSV_LOW, self.YELLOW_HSV_HIGH)
         self.blue_mask = cv2.inRange(img_hsv,self.BLUE_HSV_LOW, self.BLUE_HSV_HIGH)
-
+    
 
     # -----------------------------------------------
     # wall detection
@@ -170,6 +167,7 @@ class drive:
             self.toward_yellow_x, self.toward_yellow_y = self.unit(self.ydx, self.ydy)
         if self.have_blue:
             self.away_from_blue_x, self.away_from_blue_y = self.unit(-self.bdx, -self.bdy)
+
 
     def signed_side(self, dx, dy):
         return self.fwd_x * dy - self.fwd_y * dx
@@ -276,7 +274,7 @@ class drive:
 
         y_dist = math.hypot(self.ydx, self.ydy)
         target = self.SINGLE_WALL_TARGET_FRACTION * self.max_r
-        standoff_error = (y_dist - target) / self.max_r
+        standoff_error = (target - y_dist) / self.max_r
 
         away_x = -self.toward_yellow_x if self.toward_yellow_x is not None else 0.0
         away_y = -self.toward_yellow_y if self.toward_yellow_y is not None else 0.0
@@ -312,6 +310,18 @@ class drive:
         raw_vy = self.fwd_y + away_y * gain
         return self.finalize_velocity(raw_vx, raw_vy)
     
+    def compute_turn_command(self, direction):
+        """
+        Turn challenge command, ignoring the colour and forcing the kiwi into one of two dirctions
+        """
+        normal_x, normal_y = self.fwd_y, -self.fwd_x # computes the left perpendicular vector
+        if direction == 'right':
+            normal_x, normal_y = -normal_x, -normal_y
+
+        raw_vx = self.fwd_x + normal_x * self.SEARCH_NUDGE
+        raw_vy = self.fwd_y + normal_y * self.SEARCH_NUDGE
+        return self.finalize_velocity(raw_vx, raw_vy)
+    
 
 
     # -----------------------------------------------
@@ -324,9 +334,10 @@ class drive:
             if orientation is True:
                 self.state = State.CENTER
                 self.search_frames_left = 0
-            return  # stay in WRONG_WAY until orientation flips back
+                self.arrow_active = False
+            return
 
-        if orientation is False:
+        if self.arrow_active or orientation is False:
             self.state = State.TURN_CHALLENGE
             return
 
@@ -392,9 +403,9 @@ class drive:
                 vx, vy = self.compute_object_command()
             case State.TURN_CHALLENGE:
                 if self.ARROW_DIRECTION == "Right":
-                    vx, vy = self.compute_yellow_bias_command(searching=True)
+                    vx, vy = self.compute_turn_command('right')
                 elif self.ARROW_DIRECTION == "Left":
-                    vx, vy = self.compute_blue_bias_command(searching=True)
+                    vx, vy = self.compute_turn_command('left')
 
         self.vx, self.vy = vx, vy
         self.last_vx, self.last_vy = vx, vy
