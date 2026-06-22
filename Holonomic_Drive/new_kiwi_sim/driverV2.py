@@ -50,9 +50,14 @@ class drive:
 
         self.ARROW_DIRECTION = "Left"
 
-        self.arrow_active = False
+        self.ARROW_ACTIVE = False
 
         self.MIN_ARROW_AREA = 5000 
+
+        self.TURN_FRAMES = 0
+
+        self.ORIENATION_LOCK = 0
+        self.CENTER_LOCK = 0
 
 
         # -----------------------------------------------
@@ -211,8 +216,8 @@ class drive:
         
         arrow_contour = max(contours, key = cv2.contourArea)
 
-        if cv2.contourArea(arrow_contour) < 5000:
-            return None
+        #if cv2.contourArea(arrow_contour) < self.MIN_ARROW_AREA:
+            #return None
 
         M = cv2.moments(arrow_contour)
         #The m00 notation indicates the sum of all coordiante of the contour of pxiels
@@ -222,6 +227,12 @@ class drive:
         #relation for the x/y coordinate of the centroid was dervied from openCV
         arrow_cx = int(M["m10"] / M["m00"])
         arrow_cy = int(M["m01"] / M["m00"])
+
+        # Require arrow to be close enough vertically (distance proxy)
+        # Arrow centroid must be in the lower 35% of the image (closer to robot)
+        if arrow_cy < self.cy * 0.65:
+            return None
+
         
         #We find the fartehs point form the centroid which is the arrow tip
         max_dist = -1
@@ -239,8 +250,10 @@ class drive:
         
         dx = tip[0] - arrow_cx
         dy = tip[1] - arrow_cy
-
-        side = self.signed_side(dx, dy)
+        if dy < 0:
+            return None
+        
+        side = self.signed_side(dx, -dy)
 
         if side > 0:
             self.ARROW_DIRECTION = "Left"
@@ -370,12 +383,18 @@ class drive:
         """
         Turn challenge command, ignoring the colour and forcing the kiwi into one of two dirctions
         """
-        normal_x, normal_y = self.fwd_y, -self.fwd_x # computes the left perpendicular vector
+        normal_x, normal_y = -self.fwd_y, self.fwd_x # computes the left perpendicular vector
         if direction == 'right':
             normal_x, normal_y = -normal_x, -normal_y
 
-        raw_vx = self.fwd_x + normal_x * self.SEARCH_NUDGE
-        raw_vy = self.fwd_y + normal_y * self.SEARCH_NUDGE
+        TURN_SIDE = 0.4
+        TURN_FWD = 1.2
+
+        #raw_vx = self.fwd_x + normal_x * self.SEARCH_NUDGE
+        #raw_vy = self.fwd_y + normal_y * self.SEARCH_NUDGE
+        raw_vx = self.fwd_x * TURN_FWD + normal_x * TURN_SIDE
+        raw_vy = self.fwd_y * TURN_FWD + normal_y * TURN_SIDE
+
         return self.finalize_velocity(raw_vx, raw_vy)
     
 
@@ -384,20 +403,38 @@ class drive:
     #Updating State machine
     # -----------------------------------------------
     def update_state(self):
-        orientation = self.orientation_status()
+        orientation = None
+        if self.ORIENATION_LOCK == 0:
+            orientation = self.orientation_status()
+        else:
+            self.ORIENATION_LOCK -=1
+        
+        if self.CENTER_LOCK > 0:
+            self.CENTER_LOCK -= 1
+
 
         if self.state == State.TURN_CHALLENGE:
-            if orientation is True:
-                self.state = State.CENTER
-                self.search_frames_left = 0
-                self.arrow_active = False
+            self.TURN_FRAMES -=1
+            if self.TURN_FRAMES <= 0:
+                self.ARROW_ACTIVE = False
+                self.ORIENATION_LOCK = 15
+                self.CENTER_LOCK = 15
+                #self.state = State.CENTER
+                self.state = State.SEARCH_BLUE
+                self.search_frames_left = self.SEARCH_TIMEOUT_FRAMES
+
             return
 
-        if self.arrow_active or orientation is False:
+        if self.ARROW_ACTIVE and self.state != State.TURN_CHALLENGE:
             self.state = State.TURN_CHALLENGE
             return
 
-        if self.have_both:
+        if orientation is False and self.ORIENATION_LOCK == 0:
+            self.state = State.TURN_CHALLENGE
+            return
+
+
+        if self.have_both and self.CENTER_LOCK == 0:
             self.state = State.CENTER
             self.search_frames_left = 0
 
@@ -437,11 +474,13 @@ class drive:
         self.fwd_y = math.sin(self.heading)
 
         # arrrow detection
-        if not self.arrow_active:
+        if not self.ARROW_ACTIVE:
             arrow_dir = self.arrow_detection()
             if arrow_dir is not None:
                 self.ARROW_DIRECTION = arrow_dir
-                self.arrow_active = True
+                self.ARROW_ACTIVE = True
+                self.TURN_FRAMES = 20
+
 
 
         
