@@ -253,12 +253,12 @@ class drive:
         if dy < 0:
             return None
         
-        side = self.signed_side(dx, -dy)
-
-        if side > 0:
+        if dx < 0:
             self.ARROW_DIRECTION = "Left"
         else:
             self.ARROW_DIRECTION = "Right"
+
+        print(f"dx={dx} dy={dy} -> {self.ARROW_DIRECTION}")
 
         return self.ARROW_DIRECTION
 
@@ -383,7 +383,7 @@ class drive:
         """
         Turn challenge command, ignoring the colour and forcing the kiwi into one of two dirctions
         """
-        normal_x, normal_y = -self.fwd_y, self.fwd_x # computes the left perpendicular vector
+        normal_x, normal_y = self.fwd_y, -self.fwd_x # computes the left perpendicular vector
         if direction == 'right':
             normal_x, normal_y = -normal_x, -normal_y
 
