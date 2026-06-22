@@ -41,23 +41,25 @@ NUM_CAMS       = 6
 TAPE_W_M       = 0.036        # tape width (m)
 TRACK_W_M      = 1.07         # full track corridor width (m)
 
-ARROW_ICON_SIZE_M   = 0.22    # on-track size of a direction-arrow marker (m)
+ARROW_ICON_SIZE_M   = 0.6     # on-track size of a direction-arrow marker (m) —
+                               # matches the DRC Track Builder's 2x2-cell block
+                               # (0.5m/cell * 2 cells * 0.6 scale-down = 0.6m)
 ARROW_DETECT_RANGE_M = CAM_FAR_M  # radial range within which an arrow is "visible" to the sensor array
 
 # Colours
 C_YELLOW   = (230, 200,  20)
 C_BLUE     = ( 40, 110, 235)
-C_BG       = ( 28,  28,  33)
-C_FLOOR    = ( 52,  52,  57)
-C_GRID     = ( 40,  40,  46)
+C_BG       = (225, 225, 228)
+C_FLOOR    = (225, 225, 228)
+C_GRID     = (200, 200, 205)
 C_ROB_FILL = ( 55,  55,  65)
-C_ROB_RING = (210, 210, 215)
+C_ROB_RING = ( 45,  45,  55)
 C_NOSE     = (255,  75,  75)
-C_WEDGE    = ( 55,  55,  88)
-C_WEDGE_BD = ( 90,  90, 140)
-C_CAM_DOT  = (160, 160, 255)
+C_WEDGE    = (206, 209, 222)
+C_WEDGE_BD = (150, 155, 185)
+C_CAM_DOT  = ( 90,  90, 200)
 C_GREEN    = (  0, 224,  96)
-C_ARROW    = (235, 235, 235)
+C_ARROW    = ( 10,  10,  10)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -93,14 +95,13 @@ def rounded_rect_pts(xl, xr, yb, yt, r, n=20):
     return pts
 
 
-def arrow_icon_segs(ax, ay, direction, size=ARROW_ICON_SIZE_M):
+def arrow_icon_points(ax, ay, direction, size=ARROW_ICON_SIZE_M):
     """
-    World-space line segments for a direction-arrow marker icon: a straight
-    stem with a triangular arrowhead perpendicular to it at one end —
-    geometry mirrors the DRC Track Builder's on-canvas icon (no curves),
-    just expressed in metres instead of pixels.
+    World-space geometry for a direction-arrow marker: a straight stem and a
+    triangular arrowhead perpendicular to it at one end — mirrors the DRC
+    Track Builder's on-canvas icon (no curves), in metres instead of pixels.
     direction: 'L' / 'R' / 'U' / 'D'
-    Returns a flat list of ((x0,y0),(x1,y1)) segments (stem + 3 head edges).
+    Returns (p_top, p_bot, tip, base1, base2) world points.
     """
     stem_near = -size * 0.28
     stem_far  =  size * 0.16
@@ -122,12 +123,21 @@ def arrow_icon_segs(ax, ay, direction, size=ARROW_ICON_SIZE_M):
         base1 = (ax + stem_far - head_half, ay)
         base2 = (ax + stem_far + head_half, ay)
 
-    return [
-        (p_top, p_bot),
-        (tip, base1),
-        (tip, base2),
-        (base1, base2),
-    ]
+    return p_top, p_bot, tip, base1, base2
+
+
+def draw_arrow_marker(surface, ax, ay, direction, to_screen, line_px, colour=C_ARROW,
+                       size=ARROW_ICON_SIZE_M):
+    """
+    Draw one arrow marker directly: a stroked stem + a FILLED arrowhead
+    triangle (not three separate stroked edges — stroking each edge of a
+    small triangle makes the strokes overlap into an unrecognisable blob).
+    to_screen(x, y) maps a world point to a screen-pixel tuple.
+    """
+    p_top, p_bot, tip, base1, base2 = arrow_icon_points(ax, ay, direction, size)
+    pygame.draw.line(surface, colour, to_screen(*p_top), to_screen(*p_bot), line_px)
+    pygame.draw.polygon(surface, colour,
+                         [to_screen(*tip), to_screen(*base1), to_screen(*base2)])
 
 
 def wedge_poly(apex_x, apex_y, direction_rad, half_fov, near, far, n=14):
@@ -276,16 +286,12 @@ def load_map_file(path):
 
     # Pre-build the world-space icon geometry once (arrows are static) so it
     # can be rendered with exactly the same line-clipping path used for tape.
-    arrow_segs = []
-    for a in arrows:
-        arrow_segs.extend(arrow_icon_segs(a['x'], a['y'], a['dir']))
-
     # Scale so the track fills the view width; clamp to a readable min
     m2px      = max(20.0, TOP_PX / aw)
     tape_px   = max(2, int(TAPE_W_M * m2px))
     arrow_px  = max(2, int(TAPE_W_M * 1.3 * m2px))
     return dict(outer=outer, inner=inner, green=green,
-                arrows=arrows, arrow_segs=arrow_segs,
+                arrows=arrows,
                 spawn=(sx, sy),
                 arena_w=aw, arena_h=ah, m2px=m2px,
                 tape_px=tape_px, arrow_px=arrow_px, name=os.path.basename(path))
@@ -396,7 +402,7 @@ def render_camera_view(surface, rx, ry, map_data, motion_angle=0.0, debug_frame=
                   travel direction in both teleop and autonomous modes.
     debug_frame: (img_bgr, info) tuple from driver.get_motion_command, or None.
     """
-    surface.fill((14, 14, 19))
+    surface.fill(C_FLOOR)
     half_fov = math.radians(CAM_HFOV_DEG) / 2.0
     full_fov = half_fov * 2
     tape_px  = max(2, int(TAPE_W_M * CAM_SCALE))
@@ -440,7 +446,6 @@ def render_camera_view(surface, rx, ry, map_data, motion_angle=0.0, debug_frame=
             for i in range(NUM_CAMS):
                 cam_dir = math.radians(i * 60)
                 fx = rx + CAM_ARRAY_R_M * math.cos(cam_dir)
-                fy = ry + CAM_ARRAY_R_M * math.cos(cam_dir) * 0 + ry * 0  # placeholder, fixed below
                 fy = ry + CAM_ARRAY_R_M * math.sin(cam_dir)
                 wpoly = wedge_poly(fx, fy, cam_dir, half_fov, CAM_NEAR_M, CAM_FAR_M)
                 result = clip_seg_to_convex_poly(p1, p2, wpoly)
@@ -455,8 +460,15 @@ def render_camera_view(surface, rx, ry, map_data, motion_angle=0.0, debug_frame=
     draw_layer(map_data['inner'],        C_BLUE,   tape_px)
     # Green drawn in its own complete pass — guaranteed on top of everything
     draw_layer(map_data.get('green',[]), C_GREEN,  tape_px_green)
-    # Arrow markers drawn last so they're always visible on top of tape
-    draw_layer(map_data.get('arrow_segs',[]), C_ARROW, arrow_px)
+    # Arrow markers — drawn directly (stem stroke + filled head triangle)
+    # rather than via the per-wedge line clipper above: clipping a tiny
+    # triangle's edges into camera-wedge fragments is what produced the
+    # overlapping-blob look. Drawn last so they're always visible on top.
+    for a in map_data.get('arrows', []):
+        dx, dy = a['x'] - rx, a['y'] - ry
+        if math.hypot(dx, dy) <= CAM_FAR_M:
+            draw_arrow_marker(surface, a['x'], a['y'], a['dir'],
+                               lambda x, y: r2c(x - rx, y - ry), arrow_px)
 
     # Robot body
     centre = (CAM_WIN_SIZE // 2, CAM_WIN_SIZE // 2)
@@ -604,8 +616,8 @@ def render_topdown(surface, rx, ry, heading, map_data, font):
         pygame.draw.line(surface, C_GREEN, S(*seg[0]), S(*seg[1]), tape_px)
 
     # Direction-arrow markers — drawn after everything else so they're always visible
-    for seg in map_data.get('arrow_segs', []):
-        pygame.draw.line(surface, C_ARROW, S(*seg[0]), S(*seg[1]), arrow_px)
+    for a in map_data.get('arrows', []):
+        draw_arrow_marker(surface, a['x'], a['y'], a['dir'], S, arrow_px)
 
     # Robot body
     rpx, rpy = S(rx, ry)
@@ -636,15 +648,15 @@ def render_topdown(surface, rx, ry, heading, map_data, font):
         "WASD = move    Shift+WASD = turn    E = reset    Q = auto/teleop    ESC = quit",
     ]
     for i, line in enumerate(hud):
-        surface.blit(font.render(line, True, (155, 155, 165)), (8, 8 + i * 16))
+        surface.blit(font.render(line, True, (70, 70, 80)), (8, 8 + i * 16))
 
     # Scale bar (1 m)
     bar_px = int(m2px)
     bx, by = 10, TOP_PY - 22
-    pygame.draw.line(surface, (170, 170, 170), (bx, by), (bx + bar_px, by), 2)
+    pygame.draw.line(surface, (80, 80, 80), (bx, by), (bx + bar_px, by), 2)
     for ex in (bx, bx + bar_px):
-        pygame.draw.line(surface, (170, 170, 170), (ex, by - 4), (ex, by + 4), 2)
-    surface.blit(font.render("1 m", True, (170, 170, 170)),
+        pygame.draw.line(surface, (80, 80, 80), (ex, by - 4), (ex, by + 4), 2)
+    surface.blit(font.render("1 m", True, (80, 80, 80)),
                   (bx + bar_px // 2 - 12, by - 16))
 
 
@@ -846,8 +858,8 @@ def main():
         screen.blit(cam_surf, (cam_x, cam_y))
 
         # Panel labels
-        screen.blit(title_font.render("TOP-DOWN VIEW",   True, (190, 190, 200)), (6, TOP_PY - 14))
-        screen.blit(title_font.render("CAMERA IPM 360°", True, (190, 190, 200)), (cam_x + 6, TOTAL_H - 18))
+        screen.blit(title_font.render("TOP-DOWN VIEW",   True, (80, 80, 90)), (6, TOP_PY - 14))
+        screen.blit(title_font.render("CAMERA IPM 360°", True, (80, 80, 90)), (cam_x + 6, TOTAL_H - 18))
 
         # Mode indicator — top-left of cam panel
         mode_text  = "MODE: AUTO" if autonomous else "MODE: TELEOP"

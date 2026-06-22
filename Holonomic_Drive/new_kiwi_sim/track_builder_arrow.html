@@ -860,7 +860,9 @@ class App {
     this.segments.forEach(seg => {
       const { col, row, type } = seg;
       if (!type.startsWith("arrow_")) return;
-      const cx = (col + 0.5) * S, cy = (row + 0.5) * S;
+      // Anchor matches where drawSeg actually centres the icon: the shared
+      // corner of the 2x2 block (col+1,row+1), NOT the single cell's centre.
+      const cx = (col + 1) * S, cy = (row + 1) * S;
       const dirCode = type === "arrow_r" ? "R" : type === "arrow_l" ? "L" : type === "arrow_d" ? "D" : "U";
       arrows.push([parseFloat(cx.toFixed(4)), parseFloat(cy.toFixed(4)), dirCode]);
     });

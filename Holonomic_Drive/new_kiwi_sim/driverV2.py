@@ -52,6 +52,8 @@ class drive:
 
         self.arrow_active = False
 
+        self.MIN_ARROW_AREA = 5000 
+
 
         # -----------------------------------------------
         # Colour Params
@@ -192,6 +194,60 @@ class drive:
         if yellow_left is False or blue_right is False:
             return False
         return True
+    
+
+    def arrow_detection(self):
+        """
+        Arrow detection through comparignt eh centorid of the arrow against the robots heading
+        """
+        img_gray = cv2.cvtColor(self.img_bgr, cv2.COLOR_BGR2GRAY)
+        _, gray_mask = cv2.threshold(img_gray, 80, 255, cv2.THRESH_BINARY_INV)
+
+        canny_image = cv2.Canny(gray_mask, 50, 100)
+        contours,_ = cv2.findContours(canny_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        if len(contours) == 0:
+            return None
+        
+        arrow_contour = max(contours, key = cv2.contourArea)
+
+        if cv2.contourArea(arrow_contour) < 5000:
+            return None
+
+        M = cv2.moments(arrow_contour)
+        #The m00 notation indicates the sum of all coordiante of the contour of pxiels
+        if M["m00"] == 0:
+            return None
+        
+        #relation for the x/y coordinate of the centroid was dervied from openCV
+        arrow_cx = int(M["m10"] / M["m00"])
+        arrow_cy = int(M["m01"] / M["m00"])
+        
+        #We find the fartehs point form the centroid which is the arrow tip
+        max_dist = -1
+        tip = None
+        #we reshape the return of the contour so we can retrieve a clean 2 element array
+        for p in arrow_contour.reshape(-1,2):
+            dx = p[0] - arrow_cx
+            dy = p[1] - arrow_cy
+            dist = dx*dx + dy*dy
+            if dist > max_dist:
+                max_dist = dist
+                tip = (p[0], p[1])
+        if tip is None:
+            return None
+        
+        dx = tip[0] - arrow_cx
+        dy = tip[1] - arrow_cy
+
+        side = self.signed_side(dx, dy)
+
+        if side > 0:
+            self.ARROW_DIRECTION = "Left"
+        else:
+            self.ARROW_DIRECTION = "Right"
+
+        return self.ARROW_DIRECTION
 
 
     def robot_heading(self, robot_state):
@@ -366,6 +422,8 @@ class drive:
     #State machine
     # -----------------------------------------------
     def get_motion_command(self, robot_state, camera_view_data):
+
+       
         if self.robot_heading(robot_state):
             # Robot teleported/reset this frame - matches driver.py's
             # early `return 0.0, 0.0, None` before any wall detection runs.
@@ -377,6 +435,15 @@ class drive:
 
         self.fwd_x = math.cos(self.heading)
         self.fwd_y = math.sin(self.heading)
+
+        # arrrow detection
+        if not self.arrow_active:
+            arrow_dir = self.arrow_detection()
+            if arrow_dir is not None:
+                self.ARROW_DIRECTION = arrow_dir
+                self.arrow_active = True
+
+
         
         if not self.have_yellow and not self.have_blue:
             # No lines at all: hold the last command and deliberately leave
@@ -387,6 +454,8 @@ class drive:
             return self.vx, self.vy, self.dbg
 
         self.update_state()
+
+        print("State: ", self.state.name)
 
         match self.state:
             case State.CENTER:
