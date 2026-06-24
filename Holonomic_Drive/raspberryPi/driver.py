@@ -1,4 +1,3 @@
-
 import numpy as np
 import math
 import cv2
@@ -65,6 +64,13 @@ class drive:
 
         self.STEER_SMOOTHING = 0.8  # 0..1 — lower = smoother/slower turn response
 
+        # ---- Heading lock (rotation) ----
+        # rx is computed Pi-side: target heading (self.heading, from
+        # robot_heading()) vs the live MPU yaw read back from the Arduino.
+        self.HEADING_KP = 1.5   # rx command per radian of heading error
+        self.MAX_RX = 1.0       # clamp on the rotation command sent out
+        self.heading = 0.0      # safe default until robot_heading() sets it
+
 
 
         # -----------------------------------------------
@@ -79,6 +85,7 @@ class drive:
         # -----------------------------------------------
         self.last_vx         = 0.0
         self.last_vy         = 0.0
+        self.last_rx         = 0.0
         self.dynamic_heading = None
         self.last_x          = None
         self.last_y          = None
@@ -93,25 +100,34 @@ class drive:
 
         self.last_time = None
 
+        # ---- Serial RX state (yaw feedback from Arduino) ----
+        self.serial_buffer = ""
+        self.last_yaw = None   # most recent yaw read from Arduino, degrees
+
 
         # ---- Serial Comunication ---
 
         """
-        Serial comunication:
-        sending the arduino two variable : vx, vy
-        from the arduino nano we will be recinginv three variables == imu
+        Serial comunication protocol:
+
+        Pi -> Arduino : "vx,vy,rx\n"   three floats, roughly in [-1, 1]
+                         vx/vy = translation command, rx = rotation command
+                         (rx is computed here on the Pi from the MPU yaw
+                         the Arduino streams back, see compute_rx()).
+
+        Arduino -> Pi : "yaw\n"        one float per line, degrees [0, 360)
+                         streamed continuously by the Arduino's MPU6050.
         """
 
         SERIAL_PORT = '/dev/ttyUSB0'  # or '/dev/ttyACM0'
-        BAUDRATE = 9600
-
-
-        self.last_velocity = {}
+        BAUDRATE = 115200
 
         # === Serial setup ===
-
+        # timeout=0 -> non-blocking reads. We do our own line buffering in
+        # serialRead() via in_waiting, so this must never block the vision
+        # loop waiting on bytes that haven't arrived yet.
         try:
-            self.arduino = serial.Serial(SERIAL_PORT, BAUDRATE, timeout=1)
+            self.arduino = serial.Serial(SERIAL_PORT, BAUDRATE, timeout=0)
             time.sleep(2)  # Wait for Arduino to initialize
             print(f"Connected to Arduino on {SERIAL_PORT}")
         except serial.SerialException as e:
@@ -123,19 +139,89 @@ class drive:
     # -----------------------------------------------
 
 
-    def serialWrite(self, vx, vy):
+    def serialWrite(self, vx, vy, rx):
         """
-        This fucntion creates the serial messege to be sent to the arduino nano
-        vx = forward/backward velocity
-        vy = lateral velocity
+        Sends the drive command to the Arduino.
+        Protocol: "vx,vy,rx\n" — three floats, roughly in [-1, 1].
+        vx/vy = translation (forward/back, strafe), rx = rotation command.
         """
         try:
-            msg = f"{vx:.3f},{vy:.3f}\n"
+            msg = f"{vx:.3f},{vy:.3f},{rx:.3f}\n"
             self.arduino.write(msg.encode('utf-8'))
         except Exception as e:
             print("Serial write error:", e)
-        
-        
+
+    def serialRead(self):
+        """
+        Non-blocking drain of whatever bytes the Arduino has sent since
+        the last call. The Arduino streams its MPU yaw (degrees) as one
+        float per line: "yaw\n". Keeps the most recently parsed value in
+        self.last_yaw and returns it. Safe to call every frame — never
+        blocks, even if nothing has arrived yet.
+        """
+        try:
+            n = self.arduino.in_waiting
+            if not n:
+                return self.last_yaw
+            data = self.arduino.read(n).decode('utf-8', errors='ignore')
+        except Exception as e:
+            print("Serial read error:", e)
+            return self.last_yaw
+
+        self.serial_buffer += data
+        while '\n' in self.serial_buffer:
+            line, self.serial_buffer = self.serial_buffer.split('\n', 1)
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                self.last_yaw = float(line)
+            except ValueError:
+                # Partial/corrupted line - drop it, keep the last good value
+                pass
+
+        return self.last_yaw
+
+    def compute_rx(self):
+        """
+        Closes the rotation loop on the Pi side: compares the tracked
+        target heading (self.heading, radians, from robot_heading()'s
+        dynamic heading tracking) against the live MPU yaw read back from
+        the Arduino, and returns a clamped rotation command for serialWrite.
+        Returns 0.0 until the first yaw value has arrived from the Arduino.
+        """
+        if self.last_yaw is None:
+            return 0.0
+
+        yaw_rad = math.radians(self.last_yaw)
+        error = (self.heading - yaw_rad + math.pi) % (2 * math.pi) - math.pi
+        rx = self.HEADING_KP * error
+        return max(-self.MAX_RX, min(self.MAX_RX, rx))
+
+    def _send(self, vx, vy):
+        """
+        Single exit point for talking to the Arduino: folds in the
+        heading-lock rotation command and writes vx,vy,rx in one go, and
+        updates the "last command" state used for smoothing / hold-last.
+        """
+        rx = self.compute_rx()
+        self.serialWrite(vx, vy, rx)
+        self.last_vx, self.last_vy = vx, vy
+        self.last_rx = rx
+
+    def debug_data(self, label):
+        """
+        Lightweight debug payload. Was referenced but never defined in the
+        original code (would have raised AttributeError the first time the
+        no-walls branch ran) — filled in with the minimum needed to not
+        crash; extend with whatever fields are useful to log/plot.
+        """
+        return {
+            "state": label,
+            "yaw": self.last_yaw,
+            "heading": self.heading,
+            "rx": self.last_rx,
+        }
 
 
     def wall_vector(self, mask, cx, cy, dead_zone):
@@ -518,11 +604,18 @@ class drive:
             self.dt = now - self.last_time
         self.last_time = now
 
-       
+        # Drain any yaw feedback the Arduino has sent since the last frame.
+        # Non-blocking - safe to call every frame regardless of which
+        # branch below ends up running.
+        self.serialRead()
+
         if self.robot_heading(robot_state):
             # Robot teleported/reset this frame - matches driver.py's
             # early `return 0.0, 0.0, None` before any wall detection runs.
+            # Stop the robot outright rather than letting the Arduino act
+            # on a stale command until its watchdog kicks in.
             self.last_vx, self.last_vy = 0.0, 0.0
+            self.serialWrite(0.0, 0.0, 0.0)
             return 0.0, 0.0, None
 
         self.preprocess_frame(camera_view_data)
@@ -548,6 +641,7 @@ class drive:
             # total dropout doesn't reset or advance the search timer.
             self.vx, self.vy = self.last_vx, self.last_vy
             self.dbg = self.debug_data('no_walls')
+            self._send(self.vx, self.vy)
             return self.vx, self.vy, self.dbg
 
         self.update_state()
@@ -586,11 +680,9 @@ class drive:
 
 
         self.vx, self.vy = vx, vy
-        self.last_vx, self.last_vy = vx, vy
-        #self.dbg = self.debug_data(self.state.name.lower())
+        self._send(self.vx, self.vy)
 
-        self.serialWrite(self.vx, self.vy)
-        #return self.vx, self.vy
+        return self.vx, self.vy, self.dbg if hasattr(self, 'dbg') else None
 
 
 

@@ -6,7 +6,7 @@
  *       Motor1 -> D11  (front-right)
  *       Motor2 -> D10  (front-left)
  *       Motor3 -> D9   (rear-centre)
- *   FS2A Receiver
+ *   FS2A Receiver (boot-time diagnostics only — see notes below)
  *       Ch1 (strafe X)   -> D2
  *       Ch2 (fwd/back Y) -> D3
  *       Ch4 (rotation)   -> D4
@@ -22,8 +22,26 @@
  *          \ /
  *           3
  *
- * Boot sequence: OLED -> MPU -> ESC arm -> RX check -> motor spin test -> teleop
+ * Boot sequence: OLED -> MPU -> ESC arm -> RX check -> motor spin test -> drive loop
  * Serial @ 115200
+ *
+ * ── Serial protocol (Pi <-> Arduino) ─────────────────────────────────────
+ *   Pi -> Arduino : "vx,vy,rx\n"   three floats, roughly in [-1, 1]
+ *                    vx/vy = translation command, rx = rotation command
+ *                    (the Pi computes rx itself from the yaw below).
+ *   Arduino -> Pi  : "yaw\n"       one float per line, degrees [0, 360)
+ *                    streamed continuously from the MPU6050.
+ *
+ *   The drive command has a watchdog: if no valid line arrives from the
+ *   Pi for COMMAND_TIMEOUT_MS, motors are stopped rather than continuing
+ *   to act on a stale/disconnected command.
+ *
+ *   NOTE: the old plain-text debug print over Serial has been removed
+ *   from the runtime loop, since that link is now reserved for the
+ *   vx,vy,rx / yaw protocol above — a stray human-readable line would
+ *   just get silently dropped by the Pi's float parser, but it's wasted
+ *   bandwidth and bad practice to mix the two on one stream. The OLED
+ *   still shows live values for on-robot debugging.
  */
 
 #include <Wire.h>
@@ -63,10 +81,16 @@ bool mpuOk  = false;
 bool oledOk = false;
 
 // ── Timing ────────────────────────────────────────────────────────────────────
-unsigned long lastPrint = 0;
 unsigned long lastOled  = 0;
-const long PRINT_MS = 200;
 const long OLED_MS  = 100;
+
+// ── Drive command / yaw streaming state ──────────────────────────────────────
+String serialLineBuf = "";
+float cmd_x = 0.0, cmd_y = 0.0, cmd_rx = 0.0;
+unsigned long lastCommandMs = 0;
+const unsigned long COMMAND_TIMEOUT_MS = 300;  // failsafe: stop if Pi goes quiet
+unsigned long lastYawSend = 0;
+const long YAW_SEND_MS = 20;                   // ~50Hz yaw stream to the Pi
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -93,6 +117,44 @@ void stopAllMotors() {
   esc1.writeMicroseconds(ESC_NEUTRAL);
   esc2.writeMicroseconds(ESC_NEUTRAL);
   esc3.writeMicroseconds(ESC_NEUTRAL);
+}
+
+// ── Serial protocol helpers ──────────────────────────────────────────────────
+
+// Non-blocking: consumes whatever bytes are waiting, parses complete
+// "vx,vy,rx\n" lines, and updates cmd_x/cmd_y/cmd_rx + the watchdog
+// timestamp. Partial lines are left in serialLineBuf for next call.
+void readSerialCommands() {
+  while (Serial.available() > 0) {
+    char c = (char)Serial.read();
+    if (c == '\n') {
+      int firstComma  = serialLineBuf.indexOf(',');
+      int secondComma = serialLineBuf.indexOf(',', firstComma + 1);
+      if (firstComma > 0 && secondComma > firstComma) {
+        cmd_x  = serialLineBuf.substring(0, firstComma).toFloat();
+        cmd_y  = serialLineBuf.substring(firstComma + 1, secondComma).toFloat();
+        cmd_rx = serialLineBuf.substring(secondComma + 1).toFloat();
+        lastCommandMs = millis();
+      }
+      // Malformed line (e.g. missing a comma) is just dropped; the last
+      // good command keeps being used until the watchdog times it out.
+      serialLineBuf = "";
+    } else if (c != '\r') {
+      serialLineBuf += c;
+      // Guard against a corrupted/unterminated line growing forever
+      if (serialLineBuf.length() > 64) serialLineBuf = "";
+    }
+  }
+}
+
+// Streams yaw back to the Pi at a fixed rate (own line per call - never
+// mixed with anything else on Serial during the drive loop).
+void sendYaw() {
+  unsigned long now = millis();
+  if (now - lastYawSend >= YAW_SEND_MS) {
+    lastYawSend = now;
+    Serial.println(yaw, 2);
+  }
 }
 
 // ── OLED helpers ─────────────────────────────────────────────────────────────
@@ -178,45 +240,7 @@ bool testReceiver() {
   return anySignal;
 }
 
-void motorSpinTest() {
-  Serial.println(F("[MTR] Clear wheels! Send key or wait 3s to skip."));
-  if (oledOk) { oledClear(); oledLine(F("Motor test\nKey=run Wait=skip")); }
 
-  unsigned long t = millis();
-  bool skip = true;
-  while (millis() - t < 3000) {
-    if (Serial.available()) { Serial.read(); skip = false; break; }
-  }
-  if (skip) {
-    Serial.println(F("[MTR] Skipped."));
-    return;
-  }
-
-  const int TEST_SPEED = 1560;
-  const int TEST_MS    = 400;
-
-  // Motor 1
-  Serial.println(F("[MTR] Motor1 (front-R)"));
-  if (oledOk) { oledClear(); oledLine(F("Motor1 front-R")); }
-  esc1.writeMicroseconds(TEST_SPEED); delay(TEST_MS);
-  esc1.writeMicroseconds(ESC_NEUTRAL); delay(400);
-
-  // Motor 2
-  Serial.println(F("[MTR] Motor2 (front-L)"));
-  if (oledOk) { oledClear(); oledLine(F("Motor2 front-L")); }
-  esc2.writeMicroseconds(TEST_SPEED); delay(TEST_MS);
-  esc2.writeMicroseconds(ESC_NEUTRAL); delay(400);
-
-  // Motor 3
-  Serial.println(F("[MTR] Motor3 (rear-C)"));
-  if (oledOk) { oledClear(); oledLine(F("Motor3 rear-C")); }
-  esc3.writeMicroseconds(TEST_SPEED); delay(TEST_MS);
-  esc3.writeMicroseconds(ESC_NEUTRAL); delay(400);
-
-  Serial.println(F("[MTR] Done."));
-  if (oledOk) { oledClear(); oledLine(F("Motor test done")); }
-  delay(500);
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // KIWI DRIVE  — Robot Centric
@@ -267,30 +291,24 @@ void setup() {
   if (oledOk) { oledClear(); oledLine(F("ESCs armed")); }
   delay(500);
 
-  // RX check
+  // RX check (boot-time diagnostic only — runtime drive comes from the Pi)
   testReceiver();
 
   // Motor spin test
   motorSpinTest();
 
   // Ready
-  Serial.println(F("[READY] Teleop loop starting."));
-  if (oledOk) { oledClear(); oledLine(F("TELEOP READY")); }
+  Serial.println(F("[READY] Drive loop starting. Listening for vx,vy,rx..."));
+  if (oledOk) { oledClear(); oledLine(F("DRIVE READY")); }
   delay(500);
+
+  lastCommandMs = millis();  // don't immediately trip the watchdog
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LOOP
 // ─────────────────────────────────────────────────────────────────────────────
 void loop() {
-  unsigned int ch1Raw = readRxChannel(RX_CH1_PIN);
-  unsigned int ch2Raw = readRxChannel(RX_CH2_PIN);
-  unsigned int ch4Raw = readRxChannel(RX_CH4_PIN);
-
-  float x  = rxToFloat(ch1Raw);
-  float y  = rxToFloat(ch2Raw);
-  float rx = rxToFloat(ch4Raw);
-
   if (mpuOk) {
     mpu.update();
     yaw = mpu.getAngleZ();
@@ -298,24 +316,22 @@ void loop() {
     while (yaw >= 360) yaw -= 360;
   }
 
-  robotCentricDrive(x, y, rx);
+  // Pull in any new vx,vy,rx line(s) from the Pi (non-blocking).
+  readSerialCommands();
 
   unsigned long now = millis();
+  bool commandStale = (now - lastCommandMs > COMMAND_TIMEOUT_MS);
 
-  // Serial debug
-  if (now - lastPrint >= PRINT_MS) {
-    lastPrint = now;
-    Serial.print(F("C1=")); Serial.print(ch1Raw);
-    Serial.print(F(" C2=")); Serial.print(ch2Raw);
-    Serial.print(F(" C4=")); Serial.print(ch4Raw);
-    Serial.print(F(" x=")); Serial.print(x, 2);
-    Serial.print(F(" y=")); Serial.print(y, 2);
-    Serial.print(F(" rx=")); Serial.print(rx, 2);
-    if (mpuOk) { Serial.print(F(" yaw=")); Serial.print(yaw, 1); }
-    Serial.println();
-  }
+  float x  = commandStale ? 0.0 : cmd_x;
+  float y  = commandStale ? 0.0 : cmd_y;
+  float rx = commandStale ? 0.0 : cmd_rx;
 
-  // OLED
+  robotCentricDrive(x, y, rx);
+
+  // Stream yaw back to the Pi at a fixed rate.
+  sendYaw();
+
+  // OLED debug (does not touch Serial, so it can't collide with the protocol)
   if (oledOk && now - lastOled >= OLED_MS) {
     lastOled = now;
     oledClear();
@@ -323,9 +339,7 @@ void loop() {
     oled.print(F(" Y:")); oled.println(y, 2);
     oled.print(F("Rot:")); oled.println(rx, 2);
     if (mpuOk) { oled.print(F("Yaw:")); oled.println(yaw, 1); }
-    oled.print(F("C1:")); oled.print(ch1Raw);
-    oled.print(F(" C2:")); oled.println(ch2Raw);
-    oled.print(F("C4:")); oled.println(ch4Raw);
+    oled.println(commandStale ? F("LINK: STALE") : F("LINK: OK"));
     oled.display();
   }
 }
