@@ -3,8 +3,6 @@
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/vehicles/protos/abstract/AckermannVehicle.proto"
-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/vehicles/protos/abstract/VehicleWheel.proto"
 IMPORTABLE EXTERNPROTO "../protos/three_omniwheel.proto"
 IMPORTABLE EXTERNPROTO "../protos/three_omniwheel_rev.proto"
 
@@ -19,8 +17,8 @@ WorldInfo {
   ]
 }
 Viewpoint {
-  orientation -0.2221231214226139 -0.6116684539108685 0.7592911308712635 5.341857783074856
-  position -7.216932621650428 1.7588156192869493 3.408550188072832
+  orientation -0.026992089440460578 -0.9090534314151201 -0.41580438422416083 6.052551288480786
+  position -4.378645417470571 -2.4762972326125188 0.5356941878872427
   follow "robot:solid(3)"
 }
 TexturedBackground {
@@ -188,7 +186,7 @@ Robot {
         }
       ]
       endPoint Solid {
-        translation 0.13363028409373545 -3.244515581629783e-08 0.02001290133116146
+        translation 0.13363028409373529 -3.244515581629783e-08 0.02001290133116146
         rotation 0.9999999999983314 -1.6174852414542618e-06 8.489114416746075e-07 0.9682094597397306
         children [
           DEF Rear_wheel Shape {
@@ -219,7 +217,7 @@ Robot {
     DEF Body Solid {
       children [
         Camera {
-          translation -0.092 -0.014 0.202
+          translation 0 0 0.3
           rotation -0.11772036362802256 0 0.9930467843899834 2.9769307941327137
           fieldOfView 0.96
           width 1280
@@ -257,39 +255,6 @@ Robot {
   physics Physics {
   }
   controller "Kiwi_Control"
-}
-AckermannVehicle {
-  translation -4.81 -1.99 0.04
-  rotation 0 0 1 1.5708
-  trackFront 0.178
-  trackRear 0.178
-  wheelbase 0.272
-  wheelFrontRight VehicleWheel {
-    name "front right wheel"
-    thickness 0.027
-    tireRadius 0.0305
-    centralInnerRadius 0.01
-  }
-  wheelFrontLeft VehicleWheel {
-    name "front left wheel"
-    thickness 0.027
-    tireRadius 0.0305
-    centralInnerRadius 0.01
-    wheelSide TRUE
-  }
-  wheelRearRight VehicleWheel {
-    name "rear right wheel"
-    thickness 0.027
-    tireRadius 0.0305
-    centralInnerRadius 0.01
-  }
-  wheelRearLeft VehicleWheel {
-    name "rear left wheel"
-    thickness 0.027
-    tireRadius 0.0305
-    centralInnerRadius 0.01
-    wheelSide TRUE
-  }
 }
 DEF OMNI_WHEELS three_omniwheel_rev {
   translation -2.69 -1.51 0.03

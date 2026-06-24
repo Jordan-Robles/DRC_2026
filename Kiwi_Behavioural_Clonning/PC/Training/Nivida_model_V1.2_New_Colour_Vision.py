@@ -16,7 +16,7 @@ import ntpath #used to delete the path
 import random
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from Image_processing.ColourFilter import img_preprocess
+from Kiwi_Behavioural_Clonning.PC.Image_processing.ColourFilter import img_preprocess
 
 
 #===read the data with pandas===
@@ -25,28 +25,21 @@ csv_path = os.path.join(datadir, 'labels.csv')
 
 data = pd.read_csv(csv_path)
 
-# Keep the camera_id column so we can apply corrections
-data = data[['camera_id', 'image', 'mapped_value']]
+data = data[['image', 'mapped_value']]
 data.rename(columns={'image': 'centre', 'mapped_value': 'steering'}, inplace=True)
 
-# ===Normalise (0 to 100) to (-1 to 1)===
+#===Normilse (0 to 100) to (-1 to 1)===
 data['steering'] = data['steering'].astype(float)
 data['steering'] = (data['steering'] - 50) / 50
 
-# Apply steering correction based on camera position
-steering_correction = 0.2  # Adjust this value based on your camera width setup
+pd.set_option('display.max_colwidth', None) #this makes sure thet the columns are full represented instead of C:\user\...
 
-# Modify the steering angles for the left and right cameras
-data.loc[data['camera_id'] == 'left', 'steering'] += steering_correction
-data.loc[data['camera_id'] == 'right', 'steering'] -= steering_correction
 
-# Ensure steering doesn't exceed the [-1, 1] bounds
-data['steering'] = np.clip(data['steering'], -1.0, 1.0)
 
-# Remove the path output
 def path_leaf(path):
     head, tail = ntpath.split(path)
     return tail
+data['centre'] = data['centre'].apply(path_leaf) #Deals with removing the print out of the path
 
 data['centre'] = data['centre'].apply(path_leaf)
 

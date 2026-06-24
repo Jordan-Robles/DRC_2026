@@ -10,7 +10,7 @@ In rc_car_sim.py, replace the body of get_motion_command with:
 How it works:
   - Detects yellow (outer) and blue (inner) wall pixels via HSV masking.
   - Computes the mean position of each wall's pixels as a 2D vector from
-    the robot centre in the IPM image.
+    the robot centre in the IPM image. (inverse perspective Mapping)
   - The desired lateral correction is the midpoint between the two wall
     vectors — push toward the midpoint to stay centred.
   - Single-wall fallback: when only one wall is visible, maintain a fixed

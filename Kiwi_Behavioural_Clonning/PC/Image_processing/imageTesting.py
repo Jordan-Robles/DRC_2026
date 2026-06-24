@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import os
 from pathlib import Path
-from ColourFilter import img_preprocess
+from Kiwi_Behavioural_Clonning.PC.Image_processing.ColourFilter import img_preprocess
 
 def browse_images(csv_path, image_folder, white_output=False, delay_ms=50):
     """
