@@ -254,6 +254,7 @@ class drive:
             if dist > max_dist:
                 max_dist = dist
                 tip = (p[0], p[1])
+                
         if tip is None:
             return None
         

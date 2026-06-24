@@ -123,32 +123,17 @@ class drive:
     # -----------------------------------------------
 
 
-    def serialWrite(self, velocities):
+    def serialWrite(self, vx, vy):
         """
         This fucntion creates the serial messege to be sent to the arduino nano
         vx = forward/backward velocity
         vy = lateral velocity
         """
-
-        # Check which servos need updating
-        to_send = {}
-        for velocity_id, velocity in velocities.items():
-            last = self.last_velocity.get(velocity_id)
-        
-            if last is None or abs(last - velocity) > 1:
-                to_send[velocity_id] = velocity
-                self.last_velocity
-        
-        # If nothing changed, don't send
-        if not to_send:
-            return
         try:
-            msg = ":".join(["%d,%d" % (vel_id, vel) for vel_id, vel in sorted(to_send.items())])
-            msg += "\n"
-            self.arduino.write(msg.encode("utf-8"))
+            msg = f"{vx:.3f},{vy:.3f}\n"
+            self.arduino.write(msg.encode('utf-8'))
         except Exception as e:
             print("Serial write error:", e)
-
         
         
 
@@ -604,12 +589,7 @@ class drive:
         self.last_vx, self.last_vy = vx, vy
         #self.dbg = self.debug_data(self.state.name.lower())
 
-        velocities = {
-            1: self.vx,
-            2: self.vy
-        }
-
-        self.serialWrite(velocities)
+        self.serialWrite(self.vx, self.vy)
         #return self.vx, self.vy
 
 

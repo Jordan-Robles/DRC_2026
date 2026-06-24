@@ -1,20 +1,12 @@
+#include servo
+
 // Kiwi Drive - Simplified (drive + turn)
 // M1 = Front-left, M2 = Front-right, M3 = Rear
 // RPi sends commands over USB serial in format: "D0.75T-0.5\n"
 // D = drive (-1.0 to 1.0), T = turn (-1.0 to 1.0)
 
 // --- Pin definitions ---
-const int M1_EN  = 9;
-const int M1_IN1 = 2;
-const int M1_IN2 = 4;
 
-const int M2_EN  = 10;
-const int M2_IN1 = 5;
-const int M2_IN2 = 8;
-
-const int M3_EN  = 6;
-const int M3_IN1 = 12;
-const int M3_IN2 = 13;
 
 // --- Timeout ---
 const unsigned long TIMEOUT_MS = 500; // stop if no command for 500ms
