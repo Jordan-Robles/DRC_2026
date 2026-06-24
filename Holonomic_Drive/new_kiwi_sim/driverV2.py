@@ -2,6 +2,7 @@
 import numpy as np
 import math
 import cv2
+import time
 from enum import Enum
 
 
@@ -43,7 +44,7 @@ class drive:
         self.HEADING_TRACK_RATE = 0.15
 
         # Frames to search for lost wall before committing to corner mode
-        self.SEARCH_TIMEOUT_FRAMES = 60 # from 30fps
+        self.SEARCH_TIMEOUT = 3.0 # from 30fps
 
         # Nudge strength when searching for lost wall
         self.SEARCH_NUDGE = 1 # from 0.25
@@ -54,10 +55,17 @@ class drive:
 
         self.MIN_ARROW_AREA = 5000 
 
-        self.TURN_FRAMES = 0
+        self.TURN_TIME = 0.0
 
         self.ORIENATION_LOCK = 0
         self.CENTER_LOCK = 0
+
+        self.search_time_left = 0
+
+        self.POST_TURN_LOCK = 0
+
+        self.STEER_SMOOTHING = 0.8  # 0..1 — lower = smoother/slower turn response
+
 
 
         # -----------------------------------------------
@@ -84,6 +92,7 @@ class drive:
         self.away_from_blue_x = None
         self.away_from_blue_y = None
 
+        self.last_time = None
     # -----------------------------------------------
     #HELPERS
     # -----------------------------------------------
@@ -280,7 +289,7 @@ class drive:
                 # Reset
                 self.dynamic_heading    = manual_heading
                 self.drive_state        = State.CENTER
-                self.search_frames_left = 0
+                self.search_time_left = 0
                 self.toward_yellow_x    = None
                 self.toward_yellow_y    = None
                 self.away_from_blue_x   = None
@@ -403,62 +412,88 @@ class drive:
     #Updating State machine
     # -----------------------------------------------
     def update_state(self):
-        orientation = None
-        if self.ORIENATION_LOCK == 0:
-            orientation = self.orientation_status()
+
+        """
+        This function 
+        """
+        # ---orientation lock---
+        if self.ORIENATION_LOCK > 0:
+            self.ORIENATION_LOCK -= self.dt
         else:
-            self.ORIENATION_LOCK -=1
-        
+            orientation = self.orientation_status()
+
         if self.CENTER_LOCK > 0:
-            self.CENTER_LOCK -= 1
+            self.CENTER_LOCK -= self.dt
 
-
-        if self.state == State.TURN_CHALLENGE:
-            self.TURN_FRAMES -=1
-            if self.TURN_FRAMES <= 0:
-                self.ARROW_ACTIVE = False
-                self.ORIENATION_LOCK = 15
-                self.CENTER_LOCK = 15
-                #self.state = State.CENTER
-                self.state = State.SEARCH_BLUE
-                self.search_frames_left = self.SEARCH_TIMEOUT_FRAMES
-
+        # --post-turn lock---
+        if self.POST_TURN_LOCK > 0:
+            self.POST_TURN_LOCK -= self.dt
             return
 
+
+        # ---TURN CHALLENGE---
+        if self.state == State.TURN_CHALLENGE:
+            self.TURN_TIME -= self.dt
+            if self.TURN_TIME <= 0:
+                self.ARROW_ACTIVE = False
+                self.ORIENATION_LOCK = 0.7
+                self.CENTER_LOCK = 0.7
+                self.POST_TURN_LOCK = 0.7 
+
+                if self.ARROW_DIRECTION == "Left":
+                    self.state = State.SEARCH_BLUE
+                else:
+                    self.state = State.SEARCH_YELLOW
+
+                self.search_time_left = self.SEARCH_TIMEOUT
+            return
+
+        # ---arrow triggers turn---
         if self.ARROW_ACTIVE and self.state != State.TURN_CHALLENGE:
             self.state = State.TURN_CHALLENGE
             return
 
-        if orientation is False and self.ORIENATION_LOCK == 0:
+        # ---orientation error triggers turn---
+        if orientation is False and self.ORIENATION_LOCK <= 0:
             self.state = State.TURN_CHALLENGE
             return
 
-
-        if self.have_both and self.CENTER_LOCK == 0:
+        # ---CENTER---
+        if self.have_both and self.CENTER_LOCK <= 0:
             self.state = State.CENTER
-            self.search_frames_left = 0
+            self.search_time_left = 0
+            return
 
-        elif self.have_yellow:
+        # ---SEARCH / CORNER logic---
+        if self.have_yellow:
             if self.state in (State.CENTER, State.SEARCH_YELLOW, State.CORNER_BLUE):
                 self.state = State.SEARCH_BLUE
-                self.search_frames_left = self.SEARCH_TIMEOUT_FRAMES
+                self.search_time_left = self.SEARCH_TIMEOUT
             elif self.state == State.SEARCH_BLUE:
-                self.search_frames_left -= 1
-                if self.search_frames_left <= 0:
+                self.search_time_left -= self.dt
+                if self.search_time_left <= 0:
                     self.state = State.CORNER_YELLOW
 
         else:
             if self.state in (State.CENTER, State.SEARCH_BLUE, State.CORNER_YELLOW):
                 self.state = State.SEARCH_YELLOW
-                self.search_frames_left = self.SEARCH_TIMEOUT_FRAMES
+                self.search_time_left = self.SEARCH_TIMEOUT
             elif self.state == State.SEARCH_YELLOW:
-                self.search_frames_left -= 1
-                if self.search_frames_left <= 0:
+                self.search_time_left -= self.dt
+                if self.search_time_left <= 0:
                     self.state = State.CORNER_BLUE
+
     # -----------------------------------------------
     #State machine
     # -----------------------------------------------
     def get_motion_command(self, robot_state, camera_view_data):
+
+        now = time.time()
+        if self.last_time is None:
+            self.dt = 1/15.0   # assume 15fps first frame
+        else:
+            self.dt = now - self.last_time
+        self.last_time = now
 
        
         if self.robot_heading(robot_state):
@@ -479,7 +514,7 @@ class drive:
             if arrow_dir is not None:
                 self.ARROW_DIRECTION = arrow_dir
                 self.ARROW_ACTIVE = True
-                self.TURN_FRAMES = 20
+                self.TURN_TIME = 1.0
 
 
 
@@ -515,6 +550,15 @@ class drive:
                 elif self.ARROW_DIRECTION == "Left":
                     vx, vy = self.compute_turn_command('left')
 
+
+        blend_x = self.last_vx + (vx - self.last_vx) * self.STEER_SMOOTHING
+        blend_y = self.last_vy + (vy - self.last_vy) * self.STEER_SMOOTHING
+
+        if math.hypot(blend_x, blend_y) < 1e-3:
+            pass
+        else:
+            vx, vy = self.normalise(blend_x, blend_y, self.SPEED)
+        
         self.vx, self.vy = vx, vy
         self.last_vx, self.last_vy = vx, vy
         self.dbg = self.debug_data(self.state.name.lower())

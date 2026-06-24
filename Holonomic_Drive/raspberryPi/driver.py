@@ -1,15 +1,11 @@
-"""
-Ported over version of the driver class from the pygame sim
-this will be used in the actual robot
-"""
+
 import numpy as np
 import math
 import cv2
-import serial   
 import time
+import serial
 import sys
 from enum import Enum
-
 
 
 class State(Enum):
@@ -19,10 +15,8 @@ class State(Enum):
     SEARCH_BLUE = 3 # Have yellow, search for yellow
     CORNER_BLUE = 4
     OBJECT = 5 #Purple object detected
-    ARROW = 6 # arrow detection
-
-
-
+    TURN_CHALLENGE = 6 # arrow detection
+    
 class drive:
     def __init__(self):
 
@@ -49,10 +43,28 @@ class drive:
         self.HEADING_TRACK_RATE = 0.15
 
         # Frames to search for lost wall before committing to corner mode
-        self.SEARCH_TIMEOUT_FRAMES = 60 # from 30fps
+        self.SEARCH_TIMEOUT = 3.0 # from 30fps
 
         # Nudge strength when searching for lost wall
         self.SEARCH_NUDGE = 1 # from 0.25
+
+        self.ARROW_DIRECTION = "Left"
+
+        self.ARROW_ACTIVE = False
+
+        self.MIN_ARROW_AREA = 5000 
+
+        self.TURN_TIME = 0.0
+
+        self.ORIENATION_LOCK = 0
+        self.CENTER_LOCK = 0
+
+        self.search_time_left = 0
+
+        self.POST_TURN_LOCK = 0
+
+        self.STEER_SMOOTHING = 0.8  # 0..1 — lower = smoother/slower turn response
+
 
 
         # -----------------------------------------------
@@ -78,27 +90,69 @@ class drive:
         self.toward_yellow_y = None
         self.away_from_blue_x = None
         self.away_from_blue_y = None
-    # -----------------------------------------------
-    #SERIAL COMMUNICATION
-    # -----------------------------------------------
 
-    def serial_steering(self, m1, m2, m3):
-        LAPTOP_IP = '192.168.0.228'  # Replace with your laptop IP
-        PORT = 9999
+        self.last_time = None
+
+
+        # ---- Serial Comunication ---
+
+        """
+        Serial comunication:
+        sending the arduino two variable : vx, vy
+        from the arduino nano we will be recinginv three variables == imu
+        """
+
         SERIAL_PORT = '/dev/ttyUSB0'  # or '/dev/ttyACM0'
         BAUDRATE = 9600
 
+
+        self.last_velocity = {}
+
+        # === Serial setup ===
+
         try:
-            arduino = serial.Serial(SERIAL_PORT, BAUDRATE, timeout=1)
+            self.arduino = serial.Serial(SERIAL_PORT, BAUDRATE, timeout=1)
             time.sleep(2)  # Wait for Arduino to initialize
             print(f"Connected to Arduino on {SERIAL_PORT}")
         except serial.SerialException as e:
             print(f"Could not open serial port {SERIAL_PORT}: {e}")
             sys.exit(1)
-
+            
     # -----------------------------------------------
     #HELPERS
     # -----------------------------------------------
+
+
+    def serialWrite(self, velocities):
+        """
+        This fucntion creates the serial messege to be sent to the arduino nano
+        vx = forward/backward velocity
+        vy = lateral velocity
+        """
+
+        # Check which servos need updating
+        to_send = {}
+        for velocity_id, velocity in velocities.items():
+            last = self.last_velocity.get(velocity_id)
+        
+            if last is None or abs(last - velocity) > 1:
+                to_send[velocity_id] = velocity
+                self.last_velocity
+        
+        # If nothing changed, don't send
+        if not to_send:
+            return
+        try:
+            msg = ":".join(["%d,%d" % (vel_id, vel) for vel_id, vel in sorted(to_send.items())])
+            msg += "\n"
+            self.arduino.write(msg.encode("utf-8"))
+        except Exception as e:
+            print("Serial write error:", e)
+
+        
+        
+
+
     def wall_vector(self, mask, cx, cy, dead_zone):
         """
         Find the mean position of wall pixels as a (dx, dy) vector from image centre.
@@ -138,6 +192,18 @@ class drive:
             return 0.0, 0.0
         return vx / mag * speed, vy / mag * speed
 
+    def line_side(self):
+        self.forward_x, self.forward_y = 0, 1  # or your robot heading
+        cross = self.forward_x * self.dy - self.forward_y *self.dx
+
+        if cross > 0:
+            return "left"
+        elif cross < 0:
+            return "right"
+        else:
+            return "center"
+    
+
     # -----------------------------------------------
     #preprocess
     # -----------------------------------------------
@@ -155,7 +221,7 @@ class drive:
 
         self.yellow_mask = cv2.inRange(img_hsv,self.YELLOW_HSV_LOW, self.YELLOW_HSV_HIGH)
         self.blue_mask = cv2.inRange(img_hsv,self.BLUE_HSV_LOW, self.BLUE_HSV_HIGH)
-
+    
 
     # -----------------------------------------------
     # wall detection
@@ -169,13 +235,98 @@ class drive:
         self.have_blue   = self.b_count >= self.MIN_PIXELS
         self.have_both   = self.have_yellow and self.have_blue
 
-
             # Update stored line directions whenever lines are clearly visible
         if self.have_yellow:
             self.toward_yellow_x, self.toward_yellow_y = self.unit(self.ydx, self.ydy)
         if self.have_blue:
             self.away_from_blue_x, self.away_from_blue_y = self.unit(-self.bdx, -self.bdy)
 
+
+    def signed_side(self, dx, dy):
+        return self.fwd_x * dy - self.fwd_y * dx
+    
+    def orientation_status(self):
+        """
+        True  = correctly oriented (yellow left / blue right, where visible)
+        False = at least one visible wall is on the wrong side
+        None  = not enough info to judge (neither wall visible)
+        """
+        yellow_left = None
+        blue_right = None
+
+        if self.have_yellow:
+            yellow_left = self.signed_side(self.ydx, self.ydy) < 0
+
+        if self.have_blue:
+            blue_right = self.signed_side(self.bdx, self.bdy) > 0
+
+        if yellow_left is None and blue_right is None:
+            return None
+        if yellow_left is False or blue_right is False:
+            return False
+        return True
+    
+
+    def arrow_detection(self):
+        """
+        Arrow detection through comparignt eh centorid of the arrow against the robots heading
+        """
+        img_gray = cv2.cvtColor(self.img_bgr, cv2.COLOR_BGR2GRAY)
+        _, gray_mask = cv2.threshold(img_gray, 80, 255, cv2.THRESH_BINARY_INV)
+
+        canny_image = cv2.Canny(gray_mask, 50, 100)
+        contours,_ = cv2.findContours(canny_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        if len(contours) == 0:
+            return None
+        
+        arrow_contour = max(contours, key = cv2.contourArea)
+
+        #if cv2.contourArea(arrow_contour) < self.MIN_ARROW_AREA:
+            #return None
+
+        M = cv2.moments(arrow_contour)
+        #The m00 notation indicates the sum of all coordiante of the contour of pxiels
+        if M["m00"] == 0:
+            return None
+        
+        #relation for the x/y coordinate of the centroid was dervied from openCV
+        arrow_cx = int(M["m10"] / M["m00"])
+        arrow_cy = int(M["m01"] / M["m00"])
+
+        # Require arrow to be close enough vertically (distance proxy)
+        # Arrow centroid must be in the lower 35% of the image (closer to robot)
+        if arrow_cy < self.cy * 0.65:
+            return None
+
+        
+        #We find the fartehs point form the centroid which is the arrow tip
+        max_dist = -1
+        tip = None
+        #we reshape the return of the contour so we can retrieve a clean 2 element array
+        for p in arrow_contour.reshape(-1,2):
+            dx = p[0] - arrow_cx
+            dy = p[1] - arrow_cy
+            dist = dx*dx + dy*dy
+            if dist > max_dist:
+                max_dist = dist
+                tip = (p[0], p[1])
+        if tip is None:
+            return None
+        
+        dx = tip[0] - arrow_cx
+        dy = tip[1] - arrow_cy
+        if dy < 0:
+            return None
+        
+        if dx < 0:
+            self.ARROW_DIRECTION = "Left"
+        else:
+            self.ARROW_DIRECTION = "Right"
+
+        print(f"dx={dx} dy={dy} -> {self.ARROW_DIRECTION}")
+
+        return self.ARROW_DIRECTION
 
 
     def robot_heading(self, robot_state):
@@ -195,7 +346,7 @@ class drive:
                 # Reset
                 self.dynamic_heading    = manual_heading
                 self.drive_state        = State.CENTER
-                self.search_frames_left = 0
+                self.search_time_left = 0
                 self.toward_yellow_x    = None
                 self.toward_yellow_y    = None
                 self.away_from_blue_x   = None
@@ -209,25 +360,6 @@ class drive:
 
         self.last_x, self.last_y = self.rx, self.ry
         self.heading = self.dynamic_heading
-
-    # -----------------------------------------------
-    # debug stuff
-    # -----------------------------------------------
-    def debug_data(self, state_label):
-        # ── Store debug frame for render_debug_panel ──────────────────────────────
-        self.dbg = (self.img_bgr.copy(), {
-            'have_yellow': self.have_yellow,
-            'have_blue':   self.have_blue,
-            'have_both':   self.have_both,
-            'ydx': self.ydx, 'ydy': self.ydy, 'y_count': self.y_count,
-            'bdx': self.bdx, 'bdy': self.bdy, 'b_count': self.b_count,
-            'cmd_vx': self.vx,  'cmd_vy': self.vy,
-            'state':   state_label,
-            'heading': self.heading,
-            'dead_zone': self.CENTRE_DEAD_ZONE_PX,
-            'rx': self.rx, 'ry': self.ry,
-        })
-
 
     # -----------------------------------------------
     # Main fucntions for self driving
@@ -258,14 +390,13 @@ class drive:
 
         y_dist = math.hypot(self.ydx, self.ydy)
         target = self.SINGLE_WALL_TARGET_FRACTION * self.max_r
-        standoff_error = (y_dist - target) / self.max_r
+        standoff_error = (target - y_dist) / self.max_r
 
         away_x = -self.toward_yellow_x if self.toward_yellow_x is not None else 0.0
         away_y = -self.toward_yellow_y if self.toward_yellow_y is not None else 0.0
 
         raw_vx = self.fwd_x + away_x * (standoff_error * self.LATERAL_GAIN + self.SEARCH_NUDGE)
         raw_vy = self.fwd_y + away_y * (standoff_error * self.LATERAL_GAIN + self.SEARCH_NUDGE)
-
 
         gain = standoff_error * self.LATERAL_GAIN
         if searching:
@@ -295,40 +426,114 @@ class drive:
         raw_vy = self.fwd_y + away_y * gain
         return self.finalize_velocity(raw_vx, raw_vy)
     
+    def compute_turn_command(self, direction):
+        """
+        Turn challenge command, ignoring the colour and forcing the kiwi into one of two dirctions
+        """
+        normal_x, normal_y = self.fwd_y, -self.fwd_x # computes the left perpendicular vector
+        if direction == 'right':
+            normal_x, normal_y = -normal_x, -normal_y
+
+        TURN_SIDE = 0.4
+        TURN_FWD = 1.2
+
+        #raw_vx = self.fwd_x + normal_x * self.SEARCH_NUDGE
+        #raw_vy = self.fwd_y + normal_y * self.SEARCH_NUDGE
+        raw_vx = self.fwd_x * TURN_FWD + normal_x * TURN_SIDE
+        raw_vy = self.fwd_y * TURN_FWD + normal_y * TURN_SIDE
+
+        return self.finalize_velocity(raw_vx, raw_vy)
+    
 
 
     # -----------------------------------------------
     #Updating State machine
     # -----------------------------------------------
     def update_state(self):
-        if self.have_both:
+
+        """
+        This function 
+        """
+        # ---orientation lock---
+        if self.ORIENATION_LOCK > 0:
+            self.ORIENATION_LOCK -= self.dt
+        else:
+            orientation = self.orientation_status()
+
+        if self.CENTER_LOCK > 0:
+            self.CENTER_LOCK -= self.dt
+
+        # --post-turn lock---
+        if self.POST_TURN_LOCK > 0:
+            self.POST_TURN_LOCK -= self.dt
+            return
+
+
+        # ---TURN CHALLENGE---
+        if self.state == State.TURN_CHALLENGE:
+            self.TURN_TIME -= self.dt
+            if self.TURN_TIME <= 0:
+                self.ARROW_ACTIVE = False
+                self.ORIENATION_LOCK = 0.7
+                self.CENTER_LOCK = 0.7
+                self.POST_TURN_LOCK = 0.7 
+
+                if self.ARROW_DIRECTION == "Left":
+                    self.state = State.SEARCH_BLUE
+                else:
+                    self.state = State.SEARCH_YELLOW
+
+                self.search_time_left = self.SEARCH_TIMEOUT
+            return
+
+        # ---arrow triggers turn---
+        if self.ARROW_ACTIVE and self.state != State.TURN_CHALLENGE:
+            self.state = State.TURN_CHALLENGE
+            return
+
+        # ---orientation error triggers turn---
+        if orientation is False and self.ORIENATION_LOCK <= 0:
+            self.state = State.TURN_CHALLENGE
+            return
+
+        # ---CENTER---
+        if self.have_both and self.CENTER_LOCK <= 0:
             self.state = State.CENTER
-            self.search_frames_left = 0
-            
-        elif self.have_yellow:  # and not have_blue
+            self.search_time_left = 0
+            return
+
+        # ---SEARCH / CORNER logic---
+        if self.have_yellow:
             if self.state in (State.CENTER, State.SEARCH_YELLOW, State.CORNER_BLUE):
                 self.state = State.SEARCH_BLUE
-                self.search_frames_left = self.SEARCH_TIMEOUT_FRAMES
+                self.search_time_left = self.SEARCH_TIMEOUT
             elif self.state == State.SEARCH_BLUE:
-                self.search_frames_left -= 1
-                if self.search_frames_left <= 0:
+                self.search_time_left -= self.dt
+                if self.search_time_left <= 0:
                     self.state = State.CORNER_YELLOW
-            # else: already CORNER_YELLOW -> stay committed
-        else:  # have_blue and not have_yellow
+
+        else:
             if self.state in (State.CENTER, State.SEARCH_BLUE, State.CORNER_YELLOW):
                 self.state = State.SEARCH_YELLOW
-                self.search_frames_left = self.SEARCH_TIMEOUT_FRAMES
+                self.search_time_left = self.SEARCH_TIMEOUT
             elif self.state == State.SEARCH_YELLOW:
-                self.search_frames_left -= 1
-                if self.search_frames_left <= 0:
+                self.search_time_left -= self.dt
+                if self.search_time_left <= 0:
                     self.state = State.CORNER_BLUE
-            # else: already CORNER_BLUE -> stay committed
 
-        
     # -----------------------------------------------
     #State machine
     # -----------------------------------------------
     def get_motion_command(self, robot_state, camera_view_data):
+
+        now = time.time()
+        if self.last_time is None:
+            self.dt = 1/15.0   # assume 15fps first frame
+        else:
+            self.dt = now - self.last_time
+        self.last_time = now
+
+       
         if self.robot_heading(robot_state):
             # Robot teleported/reset this frame - matches driver.py's
             # early `return 0.0, 0.0, None` before any wall detection runs.
@@ -340,6 +545,17 @@ class drive:
 
         self.fwd_x = math.cos(self.heading)
         self.fwd_y = math.sin(self.heading)
+
+        # arrrow detection
+        if not self.ARROW_ACTIVE:
+            arrow_dir = self.arrow_detection()
+            if arrow_dir is not None:
+                self.ARROW_DIRECTION = arrow_dir
+                self.ARROW_ACTIVE = True
+                self.TURN_TIME = 1.0
+
+
+
         
         if not self.have_yellow and not self.have_blue:
             # No lines at all: hold the last command and deliberately leave
@@ -350,6 +566,8 @@ class drive:
             return self.vx, self.vy, self.dbg
 
         self.update_state()
+
+        print("State: ", self.state.name)
 
         match self.state:
             case State.CENTER:
@@ -364,13 +582,35 @@ class drive:
                 vx, vy = self.compute_blue_bias_command(searching=False)
             case State.OBJECT:
                 vx, vy = self.compute_object_command()
-            case State.ARROW:
-                vx, vy = self.compute_arrow_command()
+            case State.TURN_CHALLENGE:
+                if self.ARROW_DIRECTION == "Right":
+                    vx, vy = self.compute_turn_command('right')
+                elif self.ARROW_DIRECTION == "Left":
+                    vx, vy = self.compute_turn_command('left')
+
+
+        blend_x = self.last_vx + (vx - self.last_vx) * self.STEER_SMOOTHING
+        blend_y = self.last_vy + (vy - self.last_vy) * self.STEER_SMOOTHING
+
+        if math.hypot(blend_x, blend_y) < 1e-3:
+            pass
+        else:
+            vx, vy = self.normalise(blend_x, blend_y, self.SPEED)
+        
+
+
 
         self.vx, self.vy = vx, vy
         self.last_vx, self.last_vy = vx, vy
-        self.dbg = self.debug_data(self.state.name.lower())
-        return self.vx, self.vy, self.dbg
+        #self.dbg = self.debug_data(self.state.name.lower())
+
+        velocities = {
+            1: self.vx,
+            2: self.vy
+        }
+
+        self.serialWrite(velocities)
+        #return self.vx, self.vy
 
 
 
