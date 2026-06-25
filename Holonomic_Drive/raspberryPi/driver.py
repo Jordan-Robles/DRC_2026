@@ -1,385 +1,616 @@
 """
-driver.py — Autonomous lane-following driver for a heading-locked kiwi-drive
-            robot, fed by a real stitched 360-degree IPM camera image.
+driver.py — Autonomous lane-following + state machine driver for a
+            front-wheel-drive, rear-wheel-steer chassis, fed by a real
+            stitched 360-degree IPM camera image.
 
-ARCHITECTURE
-  This module is vision-only. It knows nothing about yaw, world position, or
-  serial protocols. Given one IPM frame, it returns a body-frame velocity:
+This is your state-machine code, adapted to run on real hardware instead
+of the sim. Three kinds of changes were made, and nothing else:
 
-      v_forward, v_right, debug_info = get_motion_command(robot_state, frame)
+  1. PREP FOR REAL CAMERA INPUT (preprocess_frame): the (W,H,3) transpose
+     and RGB->BGR conversion were specific to pygame's array3d() output in
+     the sim. A real OpenCV-based capture/stitch pipeline gives you (H,W,3)
+     BGR natively, so that step is now a no-op by default (see
+     INPUT_IS_BGR / PYGAME_WH_SWAPPED below).
 
-  v_forward / v_right are in the robot's own fixed body frame (forward = the
-  direction the chassis physically points, right = 90 deg clockwise from
-  that). Because the chassis never yaws, this body frame is constant for the
-  life of the run -- there is no heading to track frame-to-frame.
+  2. REMOVED WORLD-POSITION HEADING TRACKING (robot_heading): the old
+     version recomputed "forward" every frame from world x,y deltas,
+     because the sim's camera image was rendered world-axis-aligned. Real
+     hardware has no ground-truth x,y. But the camera is rigidly bolted to
+     the chassis, so "forward" in image-pixel-space never actually changes
+     -- it's a fixed calibration constant, true for ANY drivetrain
+     (holonomic or, as here, rear-steered), because the camera never moves
+     relative to the body regardless of how the chassis points in the
+     world. So robot_heading() now just sets a fixed bearing instead of
+     tracking anything. See the ASSUMPTION note in that method -- it's the
+     one thing here that depends on how your stitcher is built.
 
-  Keeping rotation OUT of this file is deliberate: heading-hold (cancelling
-  unwanted spin using the Arduino's MPU yaw) is a separate, faster control
-  loop and belongs in the bridge script (see pi_bridge.py), not mixed in
-  with the vision pipeline. driver.py never returns a rotation command.
+  3. REMOVED ARROW DETECTION, per your request: arrow_detection() is gone,
+     along with the block in get_motion_command() that called it and the
+     block in update_state() that let it force State.TURN_CHALLENGE. State
+     machine and every compute_*_command() formula are otherwise untouched.
 
-WHAT CHANGED FROM THE SIM VERSION
-  - No more world x,y / dynamic-heading tracking. The simulator's body also
-    never yawed, but driver.py used to *infer* a "forward" direction each
-    frame from world-position deltas. A real robot has no ground-truth
-    position, so that mechanism is gone. "Forward" is now a one-time
-    calibration constant (FORWARD_BEARING_DEG_IN_IMAGE, below) -- you set it
-    once after your stitcher is running, and it never changes again.
-  - Removed the pygame-specific (W,H,3) transpose. Real frames from an
-    OpenCV-based stitching pipeline are already (H,W,3). If you still want
-    to test this file against the old sim, set PYGAME_WH_SWAPPED = True.
-  - Wall-detection geometry (dead zone, standoff target) is now expressed as
-    a *fraction* of the image's half-diagonal instead of a fixed pixel
-    count, so it survives a change in stitched-image resolution.
-  - The single-wall search timeout is wall-clock (seconds) instead of a
-    frame count, since a real camera/stitch/process loop won't run at a
-    fixed, known frame rate the way the sim's pygame loop did.
-  - HSV thresholds are left as placeholders -- you said you'll retune these
-    against real footage, so they're untouched structurally but will need
-    new numbers.
+WHAT THIS MEANS FOR TURN_CHALLENGE
+  TURN_CHALLENGE can still be entered the other way it always could --
+  via the orientation-error check in update_state() (yellow/blue on the
+  wrong side). But arrow_detection() used to be the only thing that set
+  TURN_TIME to a positive duration; with it gone, that trigger would have
+  fired and immediately expired (TURN_TIME starts at 0.0) every time. I
+  added one constant, TURN_CHALLENGE_DURATION, set when the orientation
+  trigger fires, so the state still actually runs for a beat instead of
+  being dead code. It also still uses self.ARROW_DIRECTION to decide which
+  way to turn -- nothing updates that anymore, so it'll always be whatever
+  you set it to in __init__ ("Left" by default). Flag if you'd rather
+  remove the orientation-triggered TURN_CHALLENGE entirely instead of
+  giving it a fixed direction.
+
+TWO PRE-EXISTING BUGS FIXED ALONG THE WAY (not related to the above, just
+caught while reading through):
+  - update_state(): `orientation` was only assigned inside the `else`
+    branch of the ORIENATION_LOCK check, so referencing `orientation is
+    False` further down relies on that branch having run. I checked
+    whether this is reachable: ORIENATION_LOCK and POST_TURN_LOCK are
+    always set to the same value at the same moment (only one place in the
+    whole class sets either of them, and it sets both together) and
+    decremented by the same dt each call, so they always cross zero on the
+    same iteration -- POST_TURN_LOCK's early return currently always
+    covers the case where orientation would be unbound. So this isn't an
+    active crash today. But it's one assignment away from becoming one
+    (e.g. if you ever add another path that resets ORIENATION_LOCK without
+    also resetting POST_TURN_LOCK), so I added a default of None at the
+    top of the function anyway -- zero behavior change, just removes a
+    footgun that's currently dormant rather than live.
+  - The old teleport-reset branch referenced self.drive_state, which
+    doesn't exist anywhere else (everywhere else it's self.state) --
+    moot now since that whole branch is gone with the heading rewrite,
+    but flagging it since it was clearly a leftover from porting.
+  - debug_data() builds the debug dict and stores it on self.dbg directly
+    -- it doesn't return anything (implicit None). Both call sites did
+    `self.dbg = self.debug_data(...)`, which immediately overwrote the
+    dict debug_data() had just set with that None return value. So the
+    debug_info you'd get back from get_motion_command() was always None,
+    every single call, regardless of state. Fixed by calling
+    `self.debug_data(...)` without the assignment at both call sites --
+    debug_data() already owns setting self.dbg, so nothing else needs to
+    capture its return value.
 
 CALIBRATION YOU STILL NEED TO DO ON THE BENCH
-  1. FORWARD_BEARING_DEG_IN_IMAGE -- which way "forward" points in your
-     stitched image's pixel coordinates.
-  2. LATERAL_SIGN -- flip to -1.0 if the car steers toward the wrong wall.
-  3. INPUT_IS_BGR / PYGAME_WH_SWAPPED -- match your actual frame format.
-  4. YELLOW_HSV_*, BLUE_HSV_* -- retune against real footage (you're
-     handling this separately).
-  5. CENTRE_DEAD_ZONE_FRAC, MIN_PIXELS, LATERAL_GAIN, SINGLE_WALL_TARGET_
-     FRACTION -- re-tune once you can see real wall masks; the numbers
-     carried over from the sim are just a reasonable starting point.
+  - FORWARD_BEARING_DEG (in __init__) -- only matters if your stitched
+    image's pixel axes don't already line up with the chassis's physical
+    forward/right. Leave at 0.0 if they do.
+  - INPUT_IS_BGR / PYGAME_WH_SWAPPED -- match your real capture pipeline.
+  - YELLOW_HSV_*, BLUE_HSV_* -- you're retuning these separately.
+  - CENTRE_DEAD_ZONE_PX and friends are still raw pixel counts tuned to
+    whatever resolution the sim happened to render at -- you'll want to
+    re-check these once you know your real stitched resolution.
 """
 
-import time
-import math
-
 import numpy as np
+import math
 import cv2
-
-# ─────────────────────────────────────────────────────────────────────────────
-# FRAME FORMAT  (set these to match your real stitching pipeline)
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Most OpenCV-based capture/stitch pipelines hand you BGR uint8 frames
-# natively. Set False if your stitcher gives you RGB instead.
-INPUT_IS_BGR = True
-
-# Only relevant if you're still testing this file against the old pygame
-# sim, which returns arrays as (W,H,3) instead of the normal (H,W,3).
-# Leave False for real camera input.
-PYGAME_WH_SWAPPED = False
-
-# ─────────────────────────────────────────────────────────────────────────────
-# CALIBRATION: image pixel-space -> robot body-frame
-# ─────────────────────────────────────────────────────────────────────────────
-#
-# The chassis is heading-locked, so the camera rig never rotates relative to
-# the body. That means there is exactly ONE fixed angle, in image pixel
-# coordinates (x = column/right, y = row/down), that corresponds to the
-# robot's physical "forward" direction -- and once you find it, it never
-# changes. Find it empirically once your stitcher is producing real frames:
-# e.g. note which camera is mounted facing the direction you want to call
-# "front", and read off its bearing in the stitched panorama, or just point
-# the chassis at a known wall and see which way wall pixels sit.
-#
-# 0 = forward points along the image's +x axis (right)
-# 90 = forward points along the image's +y axis (down)
-# (increasing clockwise, matching standard image/array axis convention)
-FORWARD_BEARING_DEG_IN_IMAGE = 0.0
-
-# Flip to -1.0 on the bench if the car corrects toward the wrong wall
-# (steers right when it should steer left, or vice versa). Leave at 1.0
-# until you've actually watched it do the wrong thing once.
-LATERAL_SIGN = 1.0
-
-_fwd_rad = math.radians(FORWARD_BEARING_DEG_IN_IMAGE)
-# Unit vector pointing "forward" in image pixel coordinates.
-_FWD_IMG = (math.cos(_fwd_rad), math.sin(_fwd_rad))
-# Unit vector pointing "right" (90 deg clockwise from forward, in image
-# coordinates where y increases downward).
-_RGT_IMG = (-math.sin(_fwd_rad) * LATERAL_SIGN, math.cos(_fwd_rad) * LATERAL_SIGN)
+import time
+from enum import Enum
 
 
-def _to_body_frame(dx, dy):
-    """
-    Project an image-pixel-space offset (dx, dy) onto the robot's fixed
-    body frame, returning (forward_component, right_component).
-    This is the only place image orientation and body orientation meet --
-    everything below this line works purely in body-frame units.
-    """
-    fwd = dx * _FWD_IMG[0] + dy * _FWD_IMG[1]
-    right = dx * _RGT_IMG[0] + dy * _RGT_IMG[1]
-    return fwd, right
+class State(Enum):
+    CENTER = 0 # Both lines visable
+    SEARCH_YELLOW = 1 # Have blue, search for yellow
+    CORNER_YELLOW = 2 
+    SEARCH_BLUE = 3 # Have yellow, search for yellow
+    CORNER_BLUE = 4
+    OBJECT = 5 #Purple object detected
+    TURN_CHALLENGE = 6 # orientation-error forced turn
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PARAMETERS  (carried over from the sim version -- re-tune against real
-# footage and real geometry; treat these as starting points, not truth)
-# ─────────────────────────────────────────────────────────────────────────────
 
-ROBOT_SPEED = 0.8  # output magnitude, in whatever units the bridge expects
+class drive:
+    def __init__(self):
 
-YELLOW_HSV_LOW  = np.array([ 20, 100, 100])
-YELLOW_HSV_HIGH = np.array([ 40, 255, 255])
-BLUE_HSV_LOW    = np.array([100, 100, 100])
-BLUE_HSV_HIGH   = np.array([130, 255, 255])
+        self.state = State.CENTER
 
-# Minimum pixels to consider a wall visible
-MIN_PIXELS = 50
+        self.SPEED = 0.8
+        
+        # Minimum pixels to consider a wall visible
+        self.MIN_PIXELS = 50
 
-# Dead zone: ignore pixels within this fraction of the image's half-diagonal
-# (this is the resolution-independent replacement for the old fixed-pixel
-# CENTRE_DEAD_ZONE_PX = 55, which only made sense at the sim's 600x600 image)
-CENTRE_DEAD_ZONE_FRAC = 55.0 / 600.0
+        # Dead zone: ignore pixels within this radius of centre (robot body)
+        self.CENTRE_DEAD_ZONE_PX = 55
 
-# How strongly lateral error drives correction
-LATERAL_GAIN = 4
+        # How strongly lateral error drives correction
+        self.LATERAL_GAIN = 4 # from 2.5
 
-# Minimum forward component (fraction of ROBOT_SPEED)
-MIN_FORWARD = 0.2
+        # Minimum forward component (fraction of ROBOT_SPEED)
+        self.MIN_FORWARD = 0.2
 
-# Target distance from wall as fraction of max visible radius (single wall mode)
-SINGLE_WALL_TARGET_FRACTION = 0.45
+        # Target distance from wall as fraction of max visible radius (single wall mode)
+        self.SINGLE_WALL_TARGET_FRACTION = 0.45 # from 0.45
 
-# Seconds to search for a lost wall before committing to single-wall corner
-# mode. Wall-clock based (not frame-count) since a real vision loop's frame
-# rate isn't fixed or known in advance the way the sim's was.
-SEARCH_TIMEOUT_SEC = 2.0
+        # Frames to search for lost wall before committing to corner mode
+        self.SEARCH_TIMEOUT = 3.0 # from 30fps
 
-# Nudge strength when searching for lost wall
-SEARCH_NUDGE = 1.0
+        # Nudge strength when searching for lost wall
+        self.SEARCH_NUDGE = 1 # from 0.25
 
-# ─────────────────────────────────────────────────────────────────────────────
-# STATE
-# ─────────────────────────────────────────────────────────────────────────────
+        self.ARROW_DIRECTION = "Left"
 
-_last_v_forward = 0.0
-_last_v_right   = 0.0
+        self.TURN_TIME = 0.0
 
-# State machine
-_drive_state    = 'both'
-_search_deadline = None  # time.monotonic() timestamp, or None when not searching
+        # How long a TURN_CHALLENGE forced-turn runs once triggered.
+        # arrow_detection() used to set TURN_TIME directly when it found an
+        # arrow; with arrow detection removed, the orientation-error
+        # trigger (in update_state) is now the only way into
+        # TURN_CHALLENGE, so it needs its own duration to set TURN_TIME to.
+        self.TURN_CHALLENGE_DURATION = 1.0
 
-# Last known body-frame direction TO yellow wall and AWAY from blue wall
-# (unit vectors). Used to maintain a consistent push direction when only one
-# wall is visible, and persisted across frames since a wall can disappear.
-_toward_yellow_fwd = None
-_toward_yellow_right = None
-_away_from_blue_fwd = None
-_away_from_blue_right = None
+        self.ORIENATION_LOCK = 0
+        self.CENTER_LOCK = 0
 
-# ─────────────────────────────────────────────────────────────────────────────
-# HELPERS
-# ─────────────────────────────────────────────────────────────────────────────
+        self.search_time_left = 0
 
-def _wall_vector(mask, cx, cy, dead_zone):
-    """
-    Find the mean position of wall pixels as a (dx, dy) vector from image
-    centre, in raw image pixel coordinates. Returns (dx, dy, count).
-    Pixels within dead_zone radius are ignored.
-    """
-    ys, xs = np.where(mask > 0)
-    if len(xs) == 0:
-        return 0.0, 0.0, 0
+        self.POST_TURN_LOCK = 0
 
-    dx = xs - cx
-    dy = ys - cy
-    radii = np.sqrt(dx**2 + dy**2)
+        self.STEER_SMOOTHING = 0.8  # 0..1 — lower = smoother/slower turn response
 
-    valid = radii > dead_zone
-    dx, dy, radii = dx[valid], dy[valid], radii[valid]
-    count = len(dx)
-    if count < MIN_PIXELS:
-        return 0.0, 0.0, 0
+        self.TURN_LOCK =0.3 # previously 0.7 for day 1 prac tracks
 
-    mean_dx = float(np.mean(dx))
-    mean_dy = float(np.mean(dy))
-    return mean_dx, mean_dy, count
+        # -----------------------------------------------
+        # Real-camera calibration (replaces the old dynamic_heading /
+        # world x,y tracking -- see module docstring point 2)
+        # -----------------------------------------------
+        # Angle, in degrees, within the stitched IPM image's pixel
+        # coordinates (x = column/right, y = row/down) that corresponds to
+        # the chassis's physical forward direction. 0.0 means the image's
+        # +x axis already IS forward and +y already IS right -- if your
+        # stitcher is built that way, leave this alone and every formula
+        # below works unchanged, since self.ydx/self.bdx etc. are then
+        # already in the same frame as self.fwd_x/self.fwd_y.
+        self.FORWARD_BEARING_DEG = 0.0
+
+        # Most OpenCV-based capture/stitch pipelines hand you BGR uint8
+        # frames natively. Set False if your stitcher gives RGB instead.
+        self.INPUT_IS_BGR = True
+
+        # Only relevant if you're still testing this file against the old
+        # pygame sim, which returns arrays as (W,H,3). Leave False for real
+        # camera input.
+        self.PYGAME_WH_SWAPPED = False
+
+        # -----------------------------------------------
+        # Colour Params
+        # -----------------------------------------------
+        self.YELLOW_HSV_LOW  = np.array([ 20, 100, 100])
+        self.YELLOW_HSV_HIGH = np.array([ 40, 255, 255])
+        self.BLUE_HSV_LOW    = np.array([100, 100, 100])
+        self.BLUE_HSV_HIGH   = np.array([130, 255, 255])
+        # -----------------------------------------------
+        #STATE?
+        # -----------------------------------------------
+        self.last_vx         = 0.0
+        self.last_vy         = 0.0
+        self.heading          = math.radians(self.FORWARD_BEARING_DEG)
+        # No ground-truth world position on real hardware -- kept only so
+        # debug_data()'s dict shape doesn't change.
+        self.rx = 0.0
+        self.ry = 0.0
+
+        # Last known direction TO yellow wall and AWAY from blue wall (unit vectors)
+        # These are stored in body frame and updated whenever walls are visible.
+        # Used to maintain consistent push direction when only one wall is seen.
+        self.toward_yellow_x = None
+        self.toward_yellow_y = None
+        self.away_from_blue_x = None
+        self.away_from_blue_y = None
+
+        self.last_time = None
+    # -----------------------------------------------
+    #HELPERS
+    # -----------------------------------------------
+    def wall_vector(self, mask, cx, cy, dead_zone):
+        """
+        Find the mean position of wall pixels as a (dx, dy) vector from image centre.
+        Returns (dx, dy, count). dx/dy are in pixel units.
+        Pixels within dead_zone radius are ignored.
+        """
+        ys, xs = np.where(mask > 0)
+        if len(xs) == 0:
+            return 0.0, 0.0, 0
+
+        dx = xs - cx
+        dy = ys - cy
+        radii = np.sqrt(dx**2 + dy**2)
+
+        # Remove dead zone
+        valid = radii > dead_zone
+        dx, dy, radii = dx[valid], dy[valid], radii[valid]
+        count = len(dx)
+        if count < self.MIN_PIXELS:
+            return 0.0, 0.0, 0
+
+        mean_dx = float(np.mean(dx))
+        mean_dy = float(np.mean(dy))
+        return mean_dx, mean_dy, count
+    
+
+    def unit(self, dx, dy):
+        mag = math.hypot(dx, dy)
+        if mag < 1e-6:
+            return 0.0, 0.0
+        return dx / mag, dy / mag
 
 
-def _unit(dx, dy):
-    mag = math.hypot(dx, dy)
-    if mag < 1e-6:
-        return 0.0, 0.0
-    return dx / mag, dy / mag
+    def normalise(self, vx, vy, speed):
+        mag = math.hypot(vx, vy)
+        if mag < 1e-6:
+            return 0.0, 0.0
+        return vx / mag * speed, vy / mag * speed
+
+    def line_side(self):
+        self.forward_x, self.forward_y = 0, 1  # or your robot heading
+        cross = self.forward_x * self.dy - self.forward_y *self.dx
+
+        if cross > 0:
+            return "left"
+        elif cross < 0:
+            return "right"
+        else:
+            return "center"
+    
+
+    # -----------------------------------------------
+    #preprocess
+    # -----------------------------------------------
+    def preprocess_frame(self, camera_view_data):
+        """
+        CALIBRATE: INPUT_IS_BGR / PYGAME_WH_SWAPPED need to match your real
+        capture/stitch pipeline. The old transpose(1,0,2) + RGB->BGR here
+        were specific to pygame's array3d() output in the sim and would
+        scramble a real (H,W,3) OpenCV frame.
+        """
+        frame = camera_view_data
+        if self.PYGAME_WH_SWAPPED:
+            frame = frame.transpose(1, 0, 2)
+
+        if self.INPUT_IS_BGR:
+            self.img_bgr = frame
+        else:
+            self.img_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+        img_hsv = cv2.cvtColor(self.img_bgr, cv2.COLOR_BGR2HSV)
+
+        img_h, img_w = img_hsv.shape[:2]
+        self.cx, self.cy  = img_w / 2.0, img_h / 2.0
+
+        # max distance from the image center to any corenr of the image
+        self.max_r = math.hypot(self.cx, self.cy)
 
 
-def _normalise(vx, vy, speed):
-    mag = math.hypot(vx, vy)
-    if mag < 1e-6:
-        return 0.0, 0.0
-    return vx / mag * speed, vy / mag * speed
+        self.yellow_mask = cv2.inRange(img_hsv,self.YELLOW_HSV_LOW, self.YELLOW_HSV_HIGH)
+        self.blue_mask = cv2.inRange(img_hsv,self.BLUE_HSV_LOW, self.BLUE_HSV_HIGH)
+    
+
+    # -----------------------------------------------
+    # wall detection
+    # -----------------------------------------------
+    def detect_lines(self):
+        # ── Get line vectors ─────────────────────────────────────────────────────
+        self.ydx, self.ydy, self.y_count = self.wall_vector(self.yellow_mask, self.cx, self.cy, self.CENTRE_DEAD_ZONE_PX)
+        self.bdx, self.bdy, self.b_count = self.wall_vector(self.blue_mask,   self.cx, self.cy, self.CENTRE_DEAD_ZONE_PX)
+
+        self.have_yellow = self.y_count >= self.MIN_PIXELS
+        self.have_blue   = self.b_count >= self.MIN_PIXELS
+        self.have_both   = self.have_yellow and self.have_blue
+
+            # Update stored line directions whenever lines are clearly visible
+        if self.have_yellow:
+            self.toward_yellow_x, self.toward_yellow_y = self.unit(self.ydx, self.ydy)
+        if self.have_blue:
+            self.away_from_blue_x, self.away_from_blue_y = self.unit(-self.bdx, -self.bdy)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# MAIN ENTRY POINT
-# ─────────────────────────────────────────────────────────────────────────────
+    def signed_side(self, dx, dy):
+        return self.fwd_x * dy - self.fwd_y * dx
+    
+    def orientation_status(self):
+        """
+        True  = correctly oriented (yellow left / blue right, where visible)
+        False = at least one visible wall is on the wrong side
+        None  = not enough info to judge (neither wall visible)
+        """
+        yellow_left = None
+        blue_right = None
 
+        if self.have_yellow:
+            yellow_left = self.signed_side(self.ydx, self.ydy) < 0
+
+        if self.have_blue:
+            blue_right = self.signed_side(self.bdx, self.bdy) > 0
+
+        if yellow_left is None and blue_right is None:
+            return None
+        if yellow_left is False or blue_right is False:
+            return False
+        return True
+
+
+    def robot_heading(self, robot_state):
+        """
+        Real hardware has no ground-truth world x,y, so there's nothing to
+        dynamically track here the way the sim version did (recomputing
+        "forward" every frame from world-position deltas). The camera
+        array is rigidly mounted to the chassis, so "forward" in
+        image-pixel-space is a fixed calibration constant -- it doesn't
+        change as the chassis steers around the track, because the camera
+        never moves relative to the body, regardless of drivetrain type.
+
+        ASSUMPTION: your stitched IPM frame is built so the image's pixel
+        x-axis already points along the robot's physical forward direction
+        (and +y along physical right). With that true, FORWARD_BEARING_DEG
+        = 0.0 is correct and nothing else in this file needs to change --
+        self.ydx/self.bdx etc. are already in the same frame as
+        self.fwd_x/self.fwd_y. If your stitcher's orientation differs,
+        rotate the frame to match before calling this (e.g. in your bridge
+        script) rather than touching the maths in here.
+        """
+        self.heading = math.radians(self.FORWARD_BEARING_DEG)
+        # No real x,y on hardware -- kept only so debug_data()'s dict shape
+        # doesn't change.
+        self.rx, self.ry = 0.0, 0.0
+
+    # -----------------------------------------------
+    # debug stuff
+    # -----------------------------------------------
+    def debug_data(self, state_label):
+        # ── Store debug frame for render_debug_panel ──────────────────────────────
+        self.dbg = (self.img_bgr.copy(), {
+            'have_yellow': self.have_yellow,
+            'have_blue':   self.have_blue,
+            'have_both':   self.have_both,
+            'ydx': self.ydx, 'ydy': self.ydy, 'y_count': self.y_count,
+            'bdx': self.bdx, 'bdy': self.bdy, 'b_count': self.b_count,
+            'cmd_vx': self.vx,  'cmd_vy': self.vy,
+            'state':   state_label,
+            'heading': self.heading,
+            'dead_zone': self.CENTRE_DEAD_ZONE_PX,
+            'rx': self.rx, 'ry': self.ry,
+        })
+
+
+    # -----------------------------------------------
+    # Main fucntions for self driving
+    # -----------------------------------------------
+    def finalize_velocity(self, raw_vx, raw_vy):
+        """Apply the minimum-forward-component clamp and scale to SPEED."""
+        fwd_component = raw_vx * self.fwd_x + raw_vy * self.fwd_y
+        if fwd_component < self.MIN_FORWARD:
+            raw_vx += self.fwd_x * (self.MIN_FORWARD - fwd_component)
+            raw_vy += self.fwd_y * (self.MIN_FORWARD - fwd_component)
+ 
+        return self.normalise(raw_vx, raw_vy, self.SPEED)
+    
+    def compute_center_command(self):
+        mid_dx = (self.ydx + self.bdx) / 2.0
+        mid_dy = (self.ydy + self.bdy) / 2.0
+
+        corr_x = mid_dx / self.max_r
+        corr_y = mid_dy / self.max_r
+
+        raw_vx = self.fwd_x + corr_x * self.LATERAL_GAIN
+        raw_vy = self.fwd_y + corr_y * self.LATERAL_GAIN
+
+        return self.finalize_velocity(raw_vx, raw_vy)
+        
+
+    def compute_yellow_bias_command(self, searching):
+
+        y_dist = math.hypot(self.ydx, self.ydy)
+        target = self.SINGLE_WALL_TARGET_FRACTION * self.max_r
+        standoff_error = (target - y_dist) / self.max_r
+
+        away_x = -self.toward_yellow_x if self.toward_yellow_x is not None else 0.0
+        away_y = -self.toward_yellow_y if self.toward_yellow_y is not None else 0.0
+
+        raw_vx = self.fwd_x + away_x * (standoff_error * self.LATERAL_GAIN + self.SEARCH_NUDGE)
+        raw_vy = self.fwd_y + away_y * (standoff_error * self.LATERAL_GAIN + self.SEARCH_NUDGE)
+
+        gain = standoff_error * self.LATERAL_GAIN
+        if searching:
+            gain += self.SEARCH_NUDGE
+ 
+        raw_vx = self.fwd_x + away_x * gain
+        raw_vy = self.fwd_y + away_y * gain
+
+        return self.finalize_velocity(raw_vx, raw_vy)
+
+    def compute_blue_bias_command(self, searching):
+        b_dist = math.hypot(self.bdx, self.bdy)
+        target = self.SINGLE_WALL_TARGET_FRACTION * self.max_r
+        standoff_error = (target - b_dist) / self.max_r
+
+        away_x = self.away_from_blue_x if self.away_from_blue_x is not None else 0.0
+        away_y = self.away_from_blue_y if self.away_from_blue_y is not None else 0.0
+
+        raw_vx = self.fwd_x + away_x * (standoff_error * self.LATERAL_GAIN + self.SEARCH_NUDGE)
+        raw_vy = self.fwd_y + away_y * (standoff_error * self.LATERAL_GAIN + self.SEARCH_NUDGE)
+
+        gain = standoff_error * self.LATERAL_GAIN
+        if searching:
+            gain += self.SEARCH_NUDGE
+ 
+        raw_vx = self.fwd_x + away_x * gain
+        raw_vy = self.fwd_y + away_y * gain
+        return self.finalize_velocity(raw_vx, raw_vy)
+    
+    def compute_turn_command(self, direction):
+        """
+        Turn challenge command, ignoring the colour and forcing the kiwi into one of two dirctions
+        """
+        normal_x, normal_y = self.fwd_y, -self.fwd_x # computes the left perpendicular vector
+        if direction == 'right':
+            normal_x, normal_y = -normal_x, -normal_y
+
+        TURN_SIDE = 0.4
+        TURN_FWD = 1.2
+
+        #raw_vx = self.fwd_x + normal_x * self.SEARCH_NUDGE
+        #raw_vy = self.fwd_y + normal_y * self.SEARCH_NUDGE
+        raw_vx = self.fwd_x * TURN_FWD + normal_x * TURN_SIDE
+        raw_vy = self.fwd_y * TURN_FWD + normal_y * TURN_SIDE
+
+        return self.finalize_velocity(raw_vx, raw_vy)
+    
+
+
+    # -----------------------------------------------
+    #Updating State machine
+    # -----------------------------------------------
+    def update_state(self):
+
+        """
+        This function 
+        """
+        # `orientation` must default to something even when the lock skips
+        # computing it below -- previously unset in that case, which would
+        # raise UnboundLocalError on the `orientation is False` check
+        # further down on any frame right after a turn (when the lock is
+        # still active). None matches orientation_status()'s own
+        # "not enough info" return value.
+        orientation = None
+
+        # ---orientation lock---
+        if self.ORIENATION_LOCK > 0:
+            self.ORIENATION_LOCK -= self.dt
+        else:
+            orientation = self.orientation_status()
+
+        if self.CENTER_LOCK > 0:
+            self.CENTER_LOCK -= self.dt
+
+        # --post-turn lock---
+        if self.POST_TURN_LOCK > 0:
+            self.POST_TURN_LOCK -= self.dt
+            return
+
+
+        # ---TURN CHALLENGE---
+        if self.state == State.TURN_CHALLENGE:
+            self.TURN_TIME -= self.dt
+            if self.TURN_TIME <= 0:
+                self.ORIENATION_LOCK = self.TURN_LOCK
+                self.CENTER_LOCK = self.TURN_LOCK
+                self.POST_TURN_LOCK = self.TURN_LOCK 
+
+                if self.ARROW_DIRECTION == "Left":
+                    self.state = State.SEARCH_BLUE
+                else:
+                    self.state = State.SEARCH_YELLOW
+
+                self.search_time_left = self.SEARCH_TIMEOUT
+            return
+
+        # ---orientation error triggers turn---
+        if orientation is False and self.ORIENATION_LOCK <= 0:
+            self.state = State.TURN_CHALLENGE
+            self.TURN_TIME = self.TURN_CHALLENGE_DURATION
+            return
+
+        # ---CENTER---
+        if self.have_both and self.CENTER_LOCK <= 0:
+            self.state = State.CENTER
+            self.search_time_left = 0
+            return
+
+        # ---SEARCH / CORNER logic---
+        if self.have_yellow:
+            if self.state in (State.CENTER, State.SEARCH_YELLOW, State.CORNER_BLUE):
+                self.state = State.SEARCH_BLUE
+                self.search_time_left = self.SEARCH_TIMEOUT
+            elif self.state == State.SEARCH_BLUE:
+                self.search_time_left -= self.dt
+                if self.search_time_left <= 0:
+                    self.state = State.CORNER_YELLOW
+
+        else:
+            if self.state in (State.CENTER, State.SEARCH_BLUE, State.CORNER_YELLOW):
+                self.state = State.SEARCH_YELLOW
+                self.search_time_left = self.SEARCH_TIMEOUT
+            elif self.state == State.SEARCH_YELLOW:
+                self.search_time_left -= self.dt
+                if self.search_time_left <= 0:
+                    self.state = State.CORNER_BLUE
+
+    # -----------------------------------------------
+    #State machine
+    # -----------------------------------------------
+    def get_motion_command(self, robot_state, camera_view_data):
+
+        now = time.time()
+        if self.last_time is None:
+            self.dt = 1/15.0   # assume 15fps first frame
+        else:
+            self.dt = now - self.last_time
+        self.last_time = now
+
+        self.robot_heading(robot_state)
+
+        self.preprocess_frame(camera_view_data)
+        self.detect_lines()
+
+        self.fwd_x = math.cos(self.heading)
+        self.fwd_y = math.sin(self.heading)
+
+        if not self.have_yellow and not self.have_blue:
+            # No lines at all: hold the last command and deliberately leave
+            # self.state / self.search_frames_left untouched, so a brief
+            # total dropout doesn't reset or advance the search timer.
+            self.vx, self.vy = self.last_vx, self.last_vy
+            self.debug_data('no_walls')
+            return self.vx, self.vy, self.dbg
+
+        self.update_state()
+
+        print("State: ", self.state.name)
+
+        match self.state:
+            case State.CENTER:
+                vx, vy = self.compute_center_command()
+            case State.SEARCH_BLUE:
+                vx, vy = self.compute_yellow_bias_command(searching=True)
+            case State.CORNER_YELLOW:
+                vx, vy = self.compute_yellow_bias_command(searching=False)
+            case State.SEARCH_YELLOW:
+                vx, vy = self.compute_blue_bias_command(searching=True)
+            case State.CORNER_BLUE:
+                vx, vy = self.compute_blue_bias_command(searching=False)
+            case State.OBJECT:
+                # NOTE: compute_object_command() doesn't exist yet, and
+                # nothing in update_state() ever actually sets
+                # State.OBJECT, so this is unreachable for now rather than
+                # a live bug. Left as-is since it's unrelated to what was
+                # asked for here -- flagging in case you wire this up later.
+                vx, vy = self.compute_object_command()
+            case State.TURN_CHALLENGE:
+                if self.ARROW_DIRECTION == "Right":
+                    vx, vy = self.compute_turn_command('right')
+                elif self.ARROW_DIRECTION == "Left":
+                    vx, vy = self.compute_turn_command('left')
+
+
+        blend_x = self.last_vx + (vx - self.last_vx) * self.STEER_SMOOTHING
+        blend_y = self.last_vy + (vy - self.last_vy) * self.STEER_SMOOTHING
+
+        if math.hypot(blend_x, blend_y) < 1e-3:
+            pass
+        else:
+            vx, vy = self.normalise(blend_x, blend_y, self.SPEED)
+        
+        self.vx, self.vy = vx, vy
+        self.last_vx, self.last_vy = vx, vy
+        self.debug_data(self.state.name.lower())
+        return self.vx, self.vy, self.dbg
+
+
+
+_driver = drive()
+ 
+ 
 def get_motion_command(robot_state, camera_view_data):
-    """
-    robot_state: dict, currently unused by the core algorithm (kept for API
-                 compatibility / future use, e.g. arrow markers). Pass {} if
-                 you have nothing to put in it.
-    camera_view_data: (H, W, 3) uint8 array, the stitched 360-degree IPM
-                 frame, robot-centred. BGR by default (see INPUT_IS_BGR).
-
-    Returns (v_forward, v_right, debug_info):
-      v_forward, v_right -- body-frame velocity command. forward/right are
-        defined by FORWARD_BEARING_DEG_IN_IMAGE above; they do NOT
-        necessarily match whatever axis convention your Arduino firmware
-        expects (e.g. this codebase's kiwi_autonomous.ino calls its two
-        translation axes "strafe X" / "fwd-back Y") -- map forward/right
-        onto your hardware's x/y in the bridge script, not here.
-      debug_info -- dict of internal state for logging/tuning. No image is
-        attached (unlike the old sim version) to avoid copying full-res
-        frames every call; pass camera_view_data through yourself if you
-        want to draw an overlay.
-    """
-    global _last_v_forward, _last_v_right
-    global _drive_state, _search_deadline
-    global _toward_yellow_fwd, _toward_yellow_right
-    global _away_from_blue_fwd, _away_from_blue_right
-
-    # ── Prepare image ────────────────────────────────────────────────────────
-    frame = camera_view_data
-    if PYGAME_WH_SWAPPED:
-        frame = frame.transpose(1, 0, 2)
-
-    if INPUT_IS_BGR:
-        img_bgr = frame
-    else:
-        img_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-
-    img_hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-
-    img_h, img_w = img_hsv.shape[:2]
-    cx, cy  = img_w / 2.0, img_h / 2.0
-    max_r   = math.hypot(cx, cy)
-    dead_zone_px = CENTRE_DEAD_ZONE_FRAC * max_r
-
-    yellow_mask = cv2.inRange(img_hsv, YELLOW_HSV_LOW, YELLOW_HSV_HIGH)
-    blue_mask   = cv2.inRange(img_hsv, BLUE_HSV_LOW,   BLUE_HSV_HIGH)
-
-    # ── Get wall vectors (raw image pixel coords) ───────────────────────────
-    ydx, ydy, y_count = _wall_vector(yellow_mask, cx, cy, dead_zone_px)
-    bdx, bdy, b_count = _wall_vector(blue_mask,   cx, cy, dead_zone_px)
-
-    have_yellow = y_count >= MIN_PIXELS
-    have_blue   = b_count >= MIN_PIXELS
-    have_both   = have_yellow and have_blue
-
-    # Project into body frame once, here, so every state below works purely
-    # in (forward, right) units and never touches image coordinates again.
-    y_fwd, y_right = _to_body_frame(ydx, ydy)
-    b_fwd, b_right = _to_body_frame(bdx, bdy)
-
-    # Update stored wall directions whenever walls are clearly visible
-    if have_yellow:
-        _toward_yellow_fwd, _toward_yellow_right = _unit(y_fwd, y_right)
-    if have_blue:
-        _away_from_blue_fwd, _away_from_blue_right = _unit(-b_fwd, -b_right)
-
-    now = time.monotonic()
-
-    # ── State transitions ────────────────────────────────────────────────────
-    if have_both:
-        _drive_state = 'both'
-        _search_deadline = None
-    elif have_yellow and not have_blue:
-        if _drive_state in ('both', 'searching_yellow', 'corner_blue'):
-            _drive_state = 'searching_blue'
-            _search_deadline = now + SEARCH_TIMEOUT_SEC
-        elif _drive_state == 'searching_blue':
-            if _search_deadline is not None and now >= _search_deadline:
-                _drive_state = 'corner_yellow'
-    elif have_blue and not have_yellow:
-        if _drive_state in ('both', 'searching_blue', 'corner_yellow'):
-            _drive_state = 'searching_yellow'
-            _search_deadline = now + SEARCH_TIMEOUT_SEC
-        elif _drive_state == 'searching_yellow':
-            if _search_deadline is not None and now >= _search_deadline:
-                _drive_state = 'corner_blue'
-    else:
-        debug_info = {
-            'have_yellow': False, 'have_blue': False, 'have_both': False,
-            'y_count': 0, 'b_count': 0,
-            'cmd_v_forward': _last_v_forward, 'cmd_v_right': _last_v_right,
-            'state': 'no_walls',
-            'dead_zone_px': dead_zone_px, 'img_w': img_w, 'img_h': img_h,
-        }
-        return _last_v_forward, _last_v_right, debug_info
-
-    # ── Compute correction (all in body-frame units; forward = (1, 0)) ──────
-
-    if _drive_state == 'both':
-        mid_fwd   = (y_fwd + b_fwd) / 2.0
-        mid_right = (y_right + b_right) / 2.0
-        raw_x = 1.0 + (mid_fwd / max_r) * LATERAL_GAIN
-        raw_y = (mid_right / max_r) * LATERAL_GAIN
-
-    elif _drive_state == 'searching_blue':
-        y_dist = math.hypot(y_fwd, y_right)
-        target = SINGLE_WALL_TARGET_FRACTION * max_r
-        standoff_error = (y_dist - target) / max_r
-        away_fwd   = -_toward_yellow_fwd if _toward_yellow_fwd is not None else 0.0
-        away_right = -_toward_yellow_right if _toward_yellow_right is not None else 0.0
-        push = standoff_error * LATERAL_GAIN + SEARCH_NUDGE
-        raw_x = 1.0 + away_fwd * push
-        raw_y = away_right * push
-
-    elif _drive_state == 'searching_yellow':
-        b_dist = math.hypot(b_fwd, b_right)
-        target = SINGLE_WALL_TARGET_FRACTION * max_r
-        standoff_error = (target - b_dist) / max_r
-        away_fwd   = _away_from_blue_fwd if _away_from_blue_fwd is not None else 0.0
-        away_right = _away_from_blue_right if _away_from_blue_right is not None else 0.0
-        push = standoff_error * LATERAL_GAIN + SEARCH_NUDGE
-        raw_x = 1.0 + away_fwd * push
-        raw_y = away_right * push
-
-    elif _drive_state == 'corner_yellow':
-        y_dist = math.hypot(y_fwd, y_right)
-        target = SINGLE_WALL_TARGET_FRACTION * max_r
-        standoff_error = (y_dist - target) / max_r
-        away_fwd   = -_toward_yellow_fwd if _toward_yellow_fwd is not None else 0.0
-        away_right = -_toward_yellow_right if _toward_yellow_right is not None else 0.0
-        raw_x = 1.0 + away_fwd * standoff_error * LATERAL_GAIN
-        raw_y = away_right * standoff_error * LATERAL_GAIN
-
-    elif _drive_state == 'corner_blue':
-        b_dist = math.hypot(b_fwd, b_right)
-        target = SINGLE_WALL_TARGET_FRACTION * max_r
-        standoff_error = (target - b_dist) / max_r
-        away_fwd   = _away_from_blue_fwd if _away_from_blue_fwd is not None else 0.0
-        away_right = _away_from_blue_right if _away_from_blue_right is not None else 0.0
-        raw_x = 1.0 + away_fwd * standoff_error * LATERAL_GAIN
-        raw_y = away_right * standoff_error * LATERAL_GAIN
-
-    else:
-        debug_info = {
-            'have_yellow': have_yellow, 'have_blue': have_blue, 'have_both': False,
-            'y_count': y_count, 'b_count': b_count,
-            'cmd_v_forward': _last_v_forward, 'cmd_v_right': _last_v_right,
-            'state': 'fallthrough',
-            'dead_zone_px': dead_zone_px, 'img_w': img_w, 'img_h': img_h,
-        }
-        return _last_v_forward, _last_v_right, debug_info
-
-    # ── Minimum forward component ────────────────────────────────────────────
-    # In body frame, forward is trivially (1, 0), so the forward component
-    # of (raw_x, raw_y) is just raw_x.
-    if raw_x < MIN_FORWARD:
-        raw_x = MIN_FORWARD
-
-    v_forward, v_right = _normalise(raw_x, raw_y, ROBOT_SPEED)
-    _last_v_forward, _last_v_right = v_forward, v_right
-
-    debug_info = {
-        'have_yellow': have_yellow, 'have_blue': have_blue, 'have_both': have_both,
-        'y_count': y_count, 'b_count': b_count,
-        'cmd_v_forward': v_forward, 'cmd_v_right': v_right,
-        'state': _drive_state,
-        'dead_zone_px': dead_zone_px, 'img_w': img_w, 'img_h': img_h,
-    }
-
-    return v_forward, v_right, debug_info
+    return _driver.get_motion_command(robot_state, camera_view_data)

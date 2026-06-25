@@ -1,61 +1,46 @@
 """
 pi_bridge.py — Runs on the Pi. Ties together camera capture, driver.py, and
-               the Arduino serial link. This is the only place that talks to
-               kiwi_autonomous.ino.
+               the Arduino serial link. Talks to a front-wheel-drive,
+               rear-wheel-steer ("tricycle") chassis -- see drivetrain.py
+               and tricycle_autonomous.ino.
 
 WHAT THIS DOES, IN ORDER, EVERY LOOP ITERATION
-  1. Read the latest yaw line the Arduino has streamed over serial.
-  2. Feed that yaw into a heading-hold controller, which outputs a small
-     rotation command (rx) whose only job is to cancel drift away from a
-     locked heading setpoint. This is what keeps "the cameras/body never
-     rotate" true in practice, since nothing about the mechanical chassis
-     physically prevents it from spinning -- the MPU + this loop is what
-     holds it still.
-  3. Grab the latest stitched 12-camera IPM frame (you need to fill this
+  1. Grab the latest stitched 12-camera IPM frame (you need to fill this
      in -- see get_stitched_ipm_frame() below).
-  4. Call driver.get_motion_command() to get a vision-based (v_forward,
-     v_right) translation command.
-  5. Map (v_forward, v_right, rx) onto the Arduino's wire format and send
-     "x,y,rx\\n" over serial.
+  2. Call driver.get_motion_command() to get a vision-based (v_forward,
+     v_right) body-frame command. driver.py is completely unaware of, and
+     unaffected by, what kind of chassis is on the other end of this.
+  3. Pass (v_forward, v_right) into drivetrain.mix_to_tricycle(), which
+     converts the body-frame vector into (drive_speed, steer_deg) for two
+     front drive wheels and one rear steering wheel.
+  4. Send "drive,steer\\n" over serial.
 
-This matches the protocol already described in kiwi_autonomous.ino's header
-comment: "Pi -> Arduino: vx,vy,rx ... the Pi computes rx itself from the
-yaw below." No Arduino firmware changes are required for this script to
-work as written.
-
-A NOTE ON WHERE HEADING-HOLD LIVES
-  Doing the correction here means the control loop's speed is capped by
-  however fast your camera-grab + stitch + vision pipeline runs, since yaw
-  read, rx compute, and serial write all happen in the same loop iteration
-  as the vision step. If 12-camera stitching turns out to be slow (tens of
-  ms per frame) and you see the chassis hunting or drifting more than you'd
-  like before the correction catches it, the fix is to move heading-hold
-  into the Arduino itself -- it already has the yaw at full MPU update
-  rate, independent of how slow vision is. That's a firmware change, not
-  something this script can do alone. Worth keeping in mind if bench
-  testing shows the locked heading isn't holding tightly enough.
+WHY THERE'S NO HEADING-HOLD HERE ANYMORE
+  The previous (holonomic, heading-locked) version of this script used the
+  MPU's yaw to cancel unwanted rotation, because that chassis was only
+  supposed to translate, never turn. This chassis is the opposite: turning
+  is the ONLY way it changes direction, so there's nothing to "lock" --
+  forcing a fixed heading would actively fight the steering. The yaw stream
+  is still read (YawReader, below) since it's useful telemetry and a
+  building block if you later want closed-loop steering (e.g. damping
+  oscillation with a yaw-rate term fed into drivetrain.mix_to_tricycle's
+  optional `rx` argument), but nothing currently locks onto it.
 
 CALIBRATION YOU STILL NEED TO DO ON THE BENCH
   - SERIAL_PORT: your actual port (e.g. "/dev/ttyUSB0", "/dev/ttyACM0", or
     a COM port on Windows).
-  - STRAFE_SIGN / FORWARD_SIGN: kiwi_autonomous.ino's own comments label its
-    two translation axes "Ch1 (strafe X)" and "Ch2 (fwd/back Y)" -- that is
-    very likely NOT the same axis order/sign as driver.py's (v_forward,
-    v_right). Command pure forward on the bench, watch which way the chassis
-    actually moves, and flip these two constants until it matches.
-  - HEADING_HOLD_KP (and KI if you add it): start small and increase until
-    drift is cancelled without oscillating.
-  - MAX_RX: keep this small -- it should only ever be correcting drift, not
-    performing deliberate turns.
+  - Everything in drivetrain.py: MAX_STEER_DEG, STEER_GAIN, TURN_SPEED_
+    DERATE. Command a known lateral error on the bench and watch the
+    chassis steer the correct way before trusting it on the track.
 """
 
-import sys
 import time
 import threading
 
 import serial
 
 import driver
+import driveTrain
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SERIAL LINK
@@ -68,42 +53,24 @@ SERIAL_BAUD = 115200            # must match Serial.begin(115200) in the .ino
 # 300ms. Keep comfortably under that even if vision is slow some frames.
 ARDUINO_COMMAND_TIMEOUT_S = 0.3
 
-# ─────────────────────────────────────────────────────────────────────────────
-# AXIS MAPPING  (driver.py's body frame -> the Arduino's wire format)
-# ─────────────────────────────────────────────────────────────────────────────
-#
-# driver.py returns (v_forward, v_right) in its own calibrated body frame.
-# kiwi_autonomous.ino's comments call its two translation inputs "strafe X"
-# and "fwd/back Y" -- so the mapping is (roughly):
-#   arduino_x  <-  v_right   (strafe)
-#   arduino_y  <-  v_forward (fwd/back)
-# but the SIGN of each is whatever your wiring/wheel layout happens to
-# produce, and that can only be confirmed on the bench. Flip these to -1.0
-# as needed once you've watched the chassis respond to a known command.
-STRAFE_SIGN  = 1.0
-FORWARD_SIGN = 1.0
-
-def to_arduino_xy(v_forward, v_right):
-    x = STRAFE_SIGN * v_right
-    y = FORWARD_SIGN * v_forward
-    return x, y
+# Translation/steering mixing now lives entirely in drivetrain.py -- see
+# drivetrain.mix_to_tricycle(), called from the main loop below. Nothing
+# chassis-specific belongs in this file beyond "call the mixer and send the
+# result."
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HEADING HOLD
+# HEADING HOLD -- NOT USED BY DEFAULT ON THIS CHASSIS
 # ─────────────────────────────────────────────────────────────────────────────
+# Kept as a building block, not wired into main() below. A heading-locked
+# holonomic chassis used this to cancel drift; this chassis steers on
+# purpose, so locking a fixed setpoint would fight the steering. If you
+# later want closed-loop steering refinement (e.g. damping oscillation with
+# a yaw-RATE term, not a fixed yaw setpoint), this class is the wrong shape
+# for that -- it locks an absolute heading -- but shortest_angle_diff()
+# below is still the right building block for any yaw-error math you do.
 
-# How hard to correct per degree of heading error. Start small.
 HEADING_HOLD_KP = 0.01
-
-# Hard cap on the rotation command. This loop should only ever be cancelling
-# small drift, never performing an intentional turn -- keep it tight.
 MAX_RX = 0.3
-
-# How long to let the MPU settle after boot before locking the setpoint.
-# (kiwi_autonomous.ino already does its own gyro-offset calibration in
-# testMPU() during setup() before it ever starts streaming yaw, so this is
-# just extra settle time on the Pi side, not a substitute for that.)
-SETTLE_S = 1.0
 
 
 def shortest_angle_diff(target_deg, current_deg):
@@ -114,15 +81,9 @@ def shortest_angle_diff(target_deg, current_deg):
 class HeadingHold:
     """
     Locks onto whatever heading the chassis is at when lock_in() is called,
-    then on every update() returns a small rx correction pulling back
-    toward that locked heading.
-
-    NOTE: the MPU6050 has no magnetometer, so its yaw is gyro-integrated
-    and will drift slowly over long runs (minutes+). That's fine for THIS
-    purpose -- cancelling short-term unwanted rotation while driving a lap
-    -- but don't treat it as an absolute compass heading over a long
-    session. If you need that, you'd want sensor fusion with a
-    magnetometer (e.g. an MPU9250) instead.
+    then on every update() returns a small correction pulling back toward
+    that locked heading. Not used by main() in this configuration -- see
+    note above.
     """
 
     def __init__(self, kp=HEADING_HOLD_KP, max_rx=MAX_RX):
@@ -217,57 +178,39 @@ def get_stitched_ipm_frame():
 # MAIN LOOP
 # ─────────────────────────────────────────────────────────────────────────────
 
-def send_command(ser, x, y, rx):
-    x = max(-1.0, min(1.0, x))
-    y = max(-1.0, min(1.0, y))
-    rx = max(-1.0, min(1.0, rx))
-    ser.write(f"{x:.3f},{y:.3f},{rx:.3f}\n".encode("ascii"))
+def send_command(ser, drive_speed, steer_deg):
+    drive_speed = max(-1.0, min(1.0, drive_speed))
+    steer_deg = max(-driveTrain.MAX_STEER_DEG, min(driveTrain.MAX_STEER_DEG, steer_deg))
+    ser.write(f"{drive_speed:.3f},{steer_deg:.2f}\n".encode("ascii"))
 
 
 def main():
     ser = serial.Serial(SERIAL_PORT, SERIAL_BAUD, timeout=0.05)
 
+    # Still read yaw for telemetry / future closed-loop steering refinement
+    # (see the module docstring), even though nothing locks onto it here.
     yaw_reader = YawReader(ser)
     yaw_reader.start()
-
-    heading_hold = HeadingHold()
-
-    print(f"[pi_bridge] settling {SETTLE_S}s before locking heading...")
-    time.sleep(SETTLE_S)
-
-    yaw, age = yaw_reader.latest()
-    if yaw is None:
-        print("[pi_bridge] no yaw received from Arduino -- check wiring/port.")
-        send_command(ser, 0.0, 0.0, 0.0)
-        ser.close()
-        sys.exit(1)
-
-    heading_hold.lock_in(yaw)
-    print(f"[pi_bridge] heading locked at {yaw:.1f} deg")
 
     try:
         while True:
             frame = get_stitched_ipm_frame()
 
-            yaw, age = yaw_reader.latest()
-            rx = heading_hold.update(yaw) if age < ARDUINO_COMMAND_TIMEOUT_S else 0.0
-
             if frame is not None:
                 v_forward, v_right, debug_info = driver.get_motion_command({}, frame)
-                arduino_x, arduino_y = to_arduino_xy(v_forward, v_right)
-                send_command(ser, arduino_x, arduino_y, rx)
+                drive_speed, steer_deg = driveTrain.mix_to_tricycle(v_forward, v_right)
+                send_command(ser, drive_speed, steer_deg)
             else:
-                # No frame this iteration -- still send the heading-hold
-                # correction with zero translation rather than going
-                # silent (silence past ARDUINO_COMMAND_TIMEOUT_S anyway
+                # No frame this iteration -- hold position rather than
+                # sending nothing (silence past ARDUINO_COMMAND_TIMEOUT_S
                 # trips the Arduino's own watchdog and stops the motors).
-                send_command(ser, 0.0, 0.0, rx)
+                send_command(ser, 0.0, 0.0)
 
     except KeyboardInterrupt:
         pass
     finally:
         print("[pi_bridge] stopping.")
-        send_command(ser, 0.0, 0.0, 0.0)
+        send_command(ser, 0.0, 0.0)
         yaw_reader.stop()
         ser.close()
 

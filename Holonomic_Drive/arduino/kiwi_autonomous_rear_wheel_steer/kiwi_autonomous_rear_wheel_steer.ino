@@ -261,6 +261,22 @@ void robotCentricDrive(float x, float y, float rx) {
   writeMotor(esc3, m3);
 }
 
+void robotRearSteerDrive(float x, float y, float rx){
+
+  float m1 = (-0.5f * x + (sqrt(3.0) / 2.0f) * y) - rx * 0.5f; // Right wheel
+  float m2 = -(-0.5f * x - (sqrt(3.0) / 2.0f) * y - rx * 0.5f); // Left wheel
+  float m3 = x - rx * 0.5f; // Rear wheel steering
+
+  float maxVal = max(max(max(abs(m1), abs(m2)), abs(m3)), 1.0f);
+  m1 /= maxVal;
+  m2 /= maxVal;
+  m3 /= maxVal;
+
+  writeMotor(esc1, m1);
+  writeMotor(esc2, m2);
+  writeMotor(esc3, m3);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SETUP
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,47 +1,45 @@
 /*
- * Kiwi Drive Teleop Test
+ * Front-Drive / Rear-Steer Autonomous Test
+ * (Refactored from the original Kiwi Drive sketch -- same boot sequence,
+ *  watchdog, MPU yaw streaming, and OLED debug. Only the actuation layer
+ *  changed: 3 omni-wheel ESCs -> 2 drive ESCs + 1 steering servo.)
+ *
  * Hardware:
  *   Arduino Nano
- *   3x PWM ESCs
+ *   2x PWM ESCs (front drive wheels, both spin together -- no differential)
  *       Motor1 -> D11  (front-right)
  *       Motor2 -> D10  (front-left)
- *       Motor3 -> D9   (rear-centre)
- *   FS2A Receiver (boot-time diagnostics only — see notes below)
- *       Ch1 (strafe X)   -> D2
- *       Ch2 (fwd/back Y) -> D3
- *       Ch4 (rotation)   -> D4
+ *   1x hobby servo (rear steering wheel)
+ *       Steering -> D9
  *   OLED SSD1306 I2C     -> A4(SDA), A5(SCL)  addr 0x3C
- *   MPU6050              -> A4(SDA), A5(SCL)  addr 0x68
+ *   MPU6050               -> A4(SDA), A5(SCL)  addr 0x68
  *
- * Motor layout (viewed from above):
+ * CALIBRATE before trusting this on the track:
+ *   STEER_CENTER_US / STEER_MIN_US / STEER_MAX_US -- depends entirely on
+ *   your specific servo and steering linkage. Center the linkage by hand,
+ *   measure what pulse width your servo needs for that position, and set
+ *   STEER_CENTER_US to that. Then find how far it can turn each way before
+ *   binding and set MIN/MAX accordingly.
  *
- *        [OLED]
- *       2-------1
- *        \     /
- *         \   /
- *          \ /
- *           3
- *
- * Boot sequence: OLED -> MPU -> ESC arm -> RX check -> motor spin test -> drive loop
+ * Boot sequence: OLED -> MPU -> ESC arm + servo centre -> drive loop
+ * (the old FS2A receiver boot-time diagnostic step has been removed --
+ *  there's no RX wiring on this chassis. If you still have the receiver
+ *  wired up for manual override, that can be re-added the same way it was
+ *  in the kiwi sketch.)
  * Serial @ 115200
  *
  * ── Serial protocol (Pi <-> Arduino) ─────────────────────────────────────
- *   Pi -> Arduino : "vx,vy,rx\n"   three floats, roughly in [-1, 1]
- *                    vx/vy = translation command, rx = rotation command
- *                    (the Pi computes rx itself from the yaw below).
- *   Arduino -> Pi  : "yaw\n"       one float per line, degrees [0, 360)
+ *   Pi -> Arduino : "drive,steer\n"   two floats
+ *                    drive = front-wheel speed, roughly [-1, 1]
+ *                    steer = rear-wheel angle in DEGREES, 0 = straight,
+ *                            positive = turn right
+ *                    (see pi_bridge.py / drivetrain.py on the Pi side)
+ *   Arduino -> Pi  : "yaw\n"          one float per line, degrees [0, 360)
  *                    streamed continuously from the MPU6050.
  *
- *   The drive command has a watchdog: if no valid line arrives from the
- *   Pi for COMMAND_TIMEOUT_MS, motors are stopped rather than continuing
- *   to act on a stale/disconnected command.
- *
- *   NOTE: the old plain-text debug print over Serial has been removed
- *   from the runtime loop, since that link is now reserved for the
- *   vx,vy,rx / yaw protocol above — a stray human-readable line would
- *   just get silently dropped by the Pi's float parser, but it's wasted
- *   bandwidth and bad practice to mix the two on one stream. The OLED
- *   still shows live values for on-robot debugging.
+ *   Same watchdog as before: if no valid line arrives from the Pi for
+ *   COMMAND_TIMEOUT_MS, motors stop and steering centres rather than
+ *   continuing to act on a stale/disconnected command.
  */
 
 #include <Wire.h>
@@ -51,20 +49,30 @@
 #include <Servo.h>
 
 // ── Pins ──────────────────────────────────────────────────────────────────────
-const int MOTOR1_PIN  = 11;
-const int MOTOR2_PIN  = 10;
-const int MOTOR3_PIN  = 9;
-const int RX_CH1_PIN  = 2;
-const int RX_CH2_PIN  = 3;
-const int RX_CH4_PIN  = 4;
+const int MOTOR1_PIN  = 11;   // front-right drive ESC
+const int MOTOR2_PIN  = 10;   // front-left drive ESC
+const int STEER_PIN   = 9;    // rear steering servo
 
-// ── ESCs ──────────────────────────────────────────────────────────────────────
-Servo esc1, esc2, esc3;
+// ── Drive ESCs ────────────────────────────────────────────────────────────────
+Servo esc1, esc2;
 const int ESC_NEUTRAL  = 1500;
 const int ESC_MAX      = 1900;
 const int ESC_MIN      = 1100;
-const int ESC_DEADBAND = 30;
 const float SPEED_SCALE = 0.5;
+
+// ── Steering servo ────────────────────────────────────────────────────────────
+Servo steerServo;
+// CALIBRATE: these three depend on your servo + linkage. STEER_CENTER_US is
+// "wheel pointed straight ahead". The MIN/MAX should match the mechanical
+// limits of your steering linkage, not just the servo's own full range.
+int STEER_CENTER_US = 1500;
+int STEER_MIN_US    = 1100;
+int STEER_MAX_US    = 1900;
+// Degrees of mechanical travel corresponding to (STEER_MAX_US - STEER_CENTER_US).
+// Must match drivetrain.py's MAX_STEER_DEG on the Pi side, or the mapping
+// below will under- or over-rotate relative to what the Pi thinks it asked
+// for. CALIBRATE alongside MAX_STEER_DEG in drivetrain.py.
+const float STEER_MAX_DEG = 30.0;
 
 // ── OLED ──────────────────────────────────────────────────────────────────────
 #define SCREEN_WIDTH  128
@@ -86,7 +94,7 @@ const long OLED_MS  = 100;
 
 // ── Drive command / yaw streaming state ──────────────────────────────────────
 String serialLineBuf = "";
-float cmd_x = 0.0, cmd_y = 0.0, cmd_rx = 0.0;
+float cmd_drive = 0.0, cmd_steer_deg = 0.0;
 unsigned long lastCommandMs = 0;
 const unsigned long COMMAND_TIMEOUT_MS = 300;  // failsafe: stop if Pi goes quiet
 unsigned long lastYawSend = 0;
@@ -96,47 +104,45 @@ const long YAW_SEND_MS = 20;                   // ~50Hz yaw stream to the Pi
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
-unsigned int readRxChannel(int pin) {
-  return pulseIn(pin, HIGH, 25000);
-}
-
-float rxToFloat(unsigned int us) {
-  if (us == 0) return 0.0;
-  int centred = (int)us - 1500;
-  if (abs(centred) < ESC_DEADBAND) return 0.0;
-  return constrain((float)centred / 500.0, -1.0, 1.0);
-}
-
 void writeMotor(Servo &esc, float speed) {
   speed = constrain(speed, -1.0, 1.0);
   int us = ESC_NEUTRAL + (int)(speed * (ESC_MAX - ESC_NEUTRAL) * SPEED_SCALE);
   esc.writeMicroseconds(constrain(us, ESC_MIN, ESC_MAX));
 }
 
+void writeSteer(float steer_deg) {
+  steer_deg = constrain(steer_deg, -STEER_MAX_DEG, STEER_MAX_DEG);
+  int us;
+  if (steer_deg >= 0) {
+    us = STEER_CENTER_US + (int)((steer_deg / STEER_MAX_DEG) * (STEER_MAX_US - STEER_CENTER_US));
+  } else {
+    us = STEER_CENTER_US + (int)((steer_deg / STEER_MAX_DEG) * (STEER_CENTER_US - STEER_MIN_US));
+  }
+  steerServo.writeMicroseconds(constrain(us, STEER_MIN_US, STEER_MAX_US));
+}
+
 void stopAllMotors() {
   esc1.writeMicroseconds(ESC_NEUTRAL);
   esc2.writeMicroseconds(ESC_NEUTRAL);
-  esc3.writeMicroseconds(ESC_NEUTRAL);
+  steerServo.writeMicroseconds(STEER_CENTER_US);
 }
 
 // ── Serial protocol helpers ──────────────────────────────────────────────────
 
 // Non-blocking: consumes whatever bytes are waiting, parses complete
-// "vx,vy,rx\n" lines, and updates cmd_x/cmd_y/cmd_rx + the watchdog
+// "drive,steer\n" lines, and updates cmd_drive/cmd_steer_deg + the watchdog
 // timestamp. Partial lines are left in serialLineBuf for next call.
 void readSerialCommands() {
   while (Serial.available() > 0) {
     char c = (char)Serial.read();
     if (c == '\n') {
-      int firstComma  = serialLineBuf.indexOf(',');
-      int secondComma = serialLineBuf.indexOf(',', firstComma + 1);
-      if (firstComma > 0 && secondComma > firstComma) {
-        cmd_x  = serialLineBuf.substring(0, firstComma).toFloat();
-        cmd_y  = serialLineBuf.substring(firstComma + 1, secondComma).toFloat();
-        cmd_rx = serialLineBuf.substring(secondComma + 1).toFloat();
+      int comma = serialLineBuf.indexOf(',');
+      if (comma > 0) {
+        cmd_drive     = serialLineBuf.substring(0, comma).toFloat();
+        cmd_steer_deg = serialLineBuf.substring(comma + 1).toFloat();
         lastCommandMs = millis();
       }
-      // Malformed line (e.g. missing a comma) is just dropped; the last
+      // Malformed line (e.g. missing the comma) is just dropped; the last
       // good command keeps being used until the watchdog times it out.
       serialLineBuf = "";
     } else if (c != '\r') {
@@ -147,7 +153,7 @@ void readSerialCommands() {
   }
 }
 
-// Streams yaw back to the Pi at a fixed rate (own line per call - never
+// Streams yaw back to the Pi at a fixed rate (own line per call -- never
 // mixed with anything else on Serial during the drive loop).
 void sendYaw() {
   unsigned long now = millis();
@@ -214,51 +220,16 @@ bool testMPU() {
   return true;
 }
 
-bool testReceiver() {
-  Serial.println(F("[RX] Checking channels..."));
-  if (oledOk) { oledClear(); oledLine(F("RX signal test...")); }
-
-  bool anySignal = false;
-  for (int i = 0; i < 3; i++) {
-    unsigned int ch1 = readRxChannel(RX_CH1_PIN);
-    unsigned int ch2 = readRxChannel(RX_CH2_PIN);
-    unsigned int ch4 = readRxChannel(RX_CH4_PIN);
-
-    Serial.print(F("[RX] Ch1="));  Serial.print(ch1);
-    Serial.print(F(" Ch2="));      Serial.print(ch2);
-    Serial.print(F(" Ch4="));      Serial.print(ch4);
-    Serial.println(F("us"));
-
-    if (ch1 > 900 && ch2 > 900 && ch4 > 900) anySignal = true;
-    delay(100);
-  }
-
-  if (oledOk) { oledClear(); oledStatus(F("RX Ch1/2/4"), anySignal); }
-  Serial.print(F("[RX] "));
-  Serial.println(anySignal ? F("PASS") : F("FAIL-check TX bound"));
-  delay(800);
-  return anySignal;
-}
-
-
-
 // ─────────────────────────────────────────────────────────────────────────────
-// KIWI DRIVE  — Robot Centric
+// FRONT-DRIVE / REAR-STEER  -- Robot Centric
 // ─────────────────────────────────────────────────────────────────────────────
-void robotCentricDrive(float x, float y, float rx) {
-
-  float m1 = (-0.5f * x + (sqrt(3.0) / 2.0f) * y) - rx * 0.5f;
-  float m2 = -(-0.5f * x - (sqrt(3.0) / 2.0f) * y - rx * 0.5f);
-  float m3 = x - rx * 0.5f;
-
-  float maxVal = max(max(max(abs(m1), abs(m2)), abs(m3)), 1.0f);
-  m1 /= maxVal;
-  m2 /= maxVal;
-  m3 /= maxVal;
-
-  writeMotor(esc1, m1);
-  writeMotor(esc2, m2);
-  writeMotor(esc3, m3);
+// No differential -- both front wheels are pure drive wheels in this
+// layout, so they always get the same speed. Direction comes entirely from
+// the rear steering wheel.
+void tricycleDrive(float drive, float steer_deg) {
+  writeMotor(esc1, drive);
+  writeMotor(esc2, drive);
+  writeSteer(steer_deg);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -266,11 +237,7 @@ void robotCentricDrive(float x, float y, float rx) {
 // ─────────────────────────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
-  Serial.println(F("\n=== Kiwi Teleop Test ==="));
-
-  pinMode(RX_CH1_PIN, INPUT);
-  pinMode(RX_CH2_PIN, INPUT);
-  pinMode(RX_CH4_PIN, INPUT);
+  Serial.println(F("\n=== Front-Drive/Rear-Steer Test ==="));
 
   // OLED
   oledOk = oled.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
@@ -280,26 +247,20 @@ void setup() {
   // MPU
   mpuOk = testMPU();
 
-  // ESC arm
-  Serial.println(F("[ESC] Arming at neutral..."));
+  // ESC arm + steering centre
+  Serial.println(F("[ESC] Arming at neutral, centring steering..."));
   if (oledOk) { oledClear(); oledLine(F("Arming ESCs...")); }
   esc1.attach(MOTOR1_PIN, ESC_MIN, ESC_MAX);
   esc2.attach(MOTOR2_PIN, ESC_MIN, ESC_MAX);
-  esc3.attach(MOTOR3_PIN, ESC_MIN, ESC_MAX);
+  steerServo.attach(STEER_PIN, STEER_MIN_US, STEER_MAX_US);
   stopAllMotors();
   delay(3000);
   Serial.println(F("[ESC] Armed."));
   if (oledOk) { oledClear(); oledLine(F("ESCs armed")); }
   delay(500);
 
-  // RX check (boot-time diagnostic only — runtime drive comes from the Pi)
-  testReceiver();
-
-  // Motor spin test
-  motorSpinTest();
-
   // Ready
-  Serial.println(F("[READY] Drive loop starting. Listening for vx,vy,rx..."));
+  Serial.println(F("[READY] Drive loop starting. Listening for drive,steer..."));
   if (oledOk) { oledClear(); oledLine(F("DRIVE READY")); }
   delay(500);
 
@@ -317,17 +278,16 @@ void loop() {
     while (yaw >= 360) yaw -= 360;
   }
 
-  // Pull in any new vx,vy,rx line(s) from the Pi (non-blocking).
+  // Pull in any new drive,steer line(s) from the Pi (non-blocking).
   readSerialCommands();
 
   unsigned long now = millis();
   bool commandStale = (now - lastCommandMs > COMMAND_TIMEOUT_MS);
 
-  float x  = commandStale ? 0.0 : cmd_x;
-  float y  = commandStale ? 0.0 : cmd_y;
-  float rx = commandStale ? 0.0 : cmd_rx;
+  float drive = commandStale ? 0.0 : cmd_drive;
+  float steer = commandStale ? 0.0 : cmd_steer_deg;
 
-  robotCentricDrive(x, y, rx);
+  tricycleDrive(drive, steer);
 
   // Stream yaw back to the Pi at a fixed rate.
   sendYaw();
@@ -336,9 +296,8 @@ void loop() {
   if (oledOk && now - lastOled >= OLED_MS) {
     lastOled = now;
     oledClear();
-    oled.print(F("X:")); oled.print(x, 2);
-    oled.print(F(" Y:")); oled.println(y, 2);
-    oled.print(F("Rot:")); oled.println(rx, 2);
+    oled.print(F("Drive:")); oled.println(drive, 2);
+    oled.print(F("Steer:")); oled.println(steer, 1);
     if (mpuOk) { oled.print(F("Yaw:")); oled.println(yaw, 1); }
     oled.println(commandStale ? F("LINK: STALE") : F("LINK: OK"));
     oled.display();
