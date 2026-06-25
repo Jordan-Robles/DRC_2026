@@ -66,6 +66,10 @@ class drive:
 
         self.STEER_SMOOTHING = 0.8  # 0..1 — lower = smoother/slower turn response
 
+        self.TURN_LOCK =0.3 # previously 0.7 for day 1 prac tracks
+
+
+
 
 
         # -----------------------------------------------
@@ -437,9 +441,9 @@ class drive:
             self.TURN_TIME -= self.dt
             if self.TURN_TIME <= 0:
                 self.ARROW_ACTIVE = False
-                self.ORIENATION_LOCK = 0.7
-                self.CENTER_LOCK = 0.7
-                self.POST_TURN_LOCK = 0.7 
+                self.ORIENATION_LOCK = self.TURN_LOCK
+                self.CENTER_LOCK = self.TURN_LOCK
+                self.POST_TURN_LOCK = self.TURN_LOCK 
 
                 if self.ARROW_DIRECTION == "Left":
                     self.state = State.SEARCH_BLUE

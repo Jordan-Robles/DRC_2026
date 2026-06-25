@@ -33,7 +33,7 @@ ROBOT_SPEED    = 0.5          # m/s at full key deflection
 
 ROBOT_RADIUS_M = 0.090        # body radius for drawing (m)
 CAM_ARRAY_R_M  = 0.080        # hex camera array radius (m)
-CAM_HFOV_DEG   = 50.0         # per-camera horizontal FOV
+CAM_HFOV_DEG   = 66.0         # per-camera horizontal FOV
 CAM_NEAR_M     = 0.242        # near sensing distance (m)
 CAM_FAR_M      = 0.600        # far sensing distance / IPM cap (m)
 NUM_CAMS       = 6
