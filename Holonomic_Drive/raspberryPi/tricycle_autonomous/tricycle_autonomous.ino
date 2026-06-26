@@ -58,7 +58,7 @@ Servo esc1, esc2;
 const int ESC_NEUTRAL  = 1500;
 const int ESC_MAX      = 1900;
 const int ESC_MIN      = 1100;
-const float SPEED_SCALE = 0.5;
+const float SPEED_SCALE = 1;
 
 // ── Steering servo ────────────────────────────────────────────────────────────
 Servo steerServo;
@@ -66,8 +66,8 @@ Servo steerServo;
 // "wheel pointed straight ahead". The MIN/MAX should match the mechanical
 // limits of your steering linkage, not just the servo's own full range.
 int STEER_CENTER_US = 1500;
-int STEER_MIN_US    = 1100;
-int STEER_MAX_US    = 1900;
+int STEER_MIN_US    = 1100; //1100
+int STEER_MAX_US    = 1900; //1900
 // Degrees of mechanical travel corresponding to (STEER_MAX_US - STEER_CENTER_US).
 // Must match drivetrain.py's MAX_STEER_DEG on the Pi side, or the mapping
 // below will under- or over-rotate relative to what the Pi thinks it asked
@@ -228,7 +228,7 @@ bool testMPU() {
 // the rear steering wheel.
 void tricycleDrive(float drive, float steer_deg) {
   writeMotor(esc1, drive);
-  writeMotor(esc2, drive);
+  writeMotor(esc2, -drive);
   writeSteer(steer_deg);
 }
 

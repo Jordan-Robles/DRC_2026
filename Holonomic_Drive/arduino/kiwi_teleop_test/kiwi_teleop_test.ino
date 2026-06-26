@@ -231,8 +231,8 @@ void robotCentricDrive(float x, float y, float rx) {
   m2 /= maxVal;
   m3 /= maxVal;
 
-  writeMotor(esc1, m1);
-  writeMotor(esc2, m2);
+  // writeMotor(esc1, m1);
+  // writeMotor(esc2, m2);
   writeMotor(esc3, m3);
 }
 
